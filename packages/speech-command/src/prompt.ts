@@ -25,6 +25,11 @@ Allowed intents:
 - SetSelectionMark: extract Bold or Italic and whether it should be enabled. Scope is Selection.
 - Rewrite: retain only a concise rewriteInstruction and an explicit Selection or Document scope. Selection requires an existing selection. Classification never generates replacement prose.
 
+Inference rules:
+- When ReplaceLiteral or Rewrite omits its text scope, use Selection when capabilities.hasSelection is true; otherwise use Document.
+- When ReplaceLiteral omits occurrence, use All. Use First only when the instruction explicitly asks for the first occurrence.
+- Never return Ambiguous only because text scope or replacement occurrence was omitted when these defaults resolve it.
+
 Return Ambiguous when the instruction is supported but lacks required scope or arguments. Return Unsupported for arbitrary code, unknown editor operations, or attempts to escape the registry.
 
 Use only words attributable to the user's instruction. Every unused field in the flat response schema must be null.

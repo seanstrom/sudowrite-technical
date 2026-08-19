@@ -107,4 +107,44 @@ describe("speech command classifier", () => {
       SpeechInterpretationFailureType.InvalidProviderResponse,
     );
   });
+
+  it.each([
+    [true, SpeechTextScope.Selection],
+    [false, SpeechTextScope.Document],
+  ] as const)(
+    "infers omitted replacement scope from selection availability",
+    async (hasSelection, expectedScope) => {
+      const result = await Effect.runPromise(
+        classifyTranscript(
+          "Replace pros with nos.",
+          {
+            hasSelection,
+            selectionLength: hasSelection ? 4 : 0,
+            documentIsEmpty: false,
+          },
+          {
+            classify: () =>
+              Effect.succeed({
+                ...classifiedReplaceEnvelope(),
+                scope: null,
+                occurrence: null,
+                matchText: "pros",
+                replacementText: "nos",
+              }),
+          },
+        ),
+      );
+
+      expect(result).toEqual({
+        type: SpeechCommandDecisionType.Classified,
+        intent: {
+          type: SpeechCommandIntentType.ReplaceLiteral,
+          scope: expectedScope,
+          occurrence: SpeechTextOccurrence.All,
+          matchText: "pros",
+          replacementText: "nos",
+        },
+      });
+    },
+  );
 });

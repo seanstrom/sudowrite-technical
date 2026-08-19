@@ -7,6 +7,7 @@ import {
   SpeechInterpretationFailure,
   SpeechInterpretationOperation,
   SpeechResultType,
+  SpeechTextOccurrence,
   SpeechTextScope,
   type SpeechCommandCapabilityFacts,
   type SpeechCommandDecision as SpeechCommandDecisionValue,
@@ -47,6 +48,7 @@ function invalidEnvelope(message: string): SpeechInterpretationFailureValue {
 
 export function normalizeSpeechCommandClassifierEnvelope(
   envelope: SpeechCommandClassifierEnvelope,
+  capabilities: SpeechCommandCapabilityFacts,
 ): Effect.Effect<SpeechCommandDecisionValue, SpeechInterpretationFailureValue> {
   switch (envelope.kind) {
     case SpeechCommandClassifierEnvelopeKind.Ambiguous:
@@ -114,11 +116,16 @@ export function normalizeSpeechCommandClassifierEnvelope(
   }
 
   switch (envelope.intent) {
-    case SpeechCommandIntentType.ReplaceLiteral:
+    case SpeechCommandIntentType.ReplaceLiteral: {
+      const scope =
+        envelope.scope ??
+        (capabilities.hasSelection
+          ? SpeechTextScope.Selection
+          : SpeechTextScope.Document);
+      const occurrence = envelope.occurrence ?? SpeechTextOccurrence.All;
       if (
-        (envelope.scope === SpeechTextScope.Selection ||
-          envelope.scope === SpeechTextScope.Document) &&
-        envelope.occurrence !== null &&
+        (scope === SpeechTextScope.Selection ||
+          scope === SpeechTextScope.Document) &&
         hasText(envelope.matchText) &&
         envelope.replacementText !== null &&
         allNull([
@@ -131,8 +138,8 @@ export function normalizeSpeechCommandClassifierEnvelope(
         return Effect.succeed(
           SpeechCommandDecision.Classified(
             SpeechCommandIntent.ReplaceLiteral(
-              envelope.scope,
-              envelope.occurrence,
+              scope,
+              occurrence,
               envelope.matchText,
               envelope.replacementText,
             ),
@@ -140,6 +147,7 @@ export function normalizeSpeechCommandClassifierEnvelope(
         );
       }
       return Effect.fail(invalidEnvelope("ReplaceLiteral fields are invalid."));
+    }
 
     case SpeechCommandIntentType.InsertLiteral:
       if (
@@ -193,10 +201,15 @@ export function normalizeSpeechCommandClassifierEnvelope(
         invalidEnvelope("SetSelectionMark fields are invalid."),
       );
 
-    case SpeechCommandIntentType.Rewrite:
+    case SpeechCommandIntentType.Rewrite: {
+      const scope =
+        envelope.scope ??
+        (capabilities.hasSelection
+          ? SpeechTextScope.Selection
+          : SpeechTextScope.Document);
       if (
-        (envelope.scope === SpeechTextScope.Selection ||
-          envelope.scope === SpeechTextScope.Document) &&
+        (scope === SpeechTextScope.Selection ||
+          scope === SpeechTextScope.Document) &&
         hasText(envelope.rewriteInstruction) &&
         allNull([
           envelope.occurrence,
@@ -210,7 +223,7 @@ export function normalizeSpeechCommandClassifierEnvelope(
         return Effect.succeed(
           SpeechCommandDecision.Classified(
             SpeechCommandIntent.Rewrite(
-              envelope.scope,
+              scope,
               envelope.rewriteInstruction.trim(),
             ),
           ),
@@ -219,6 +232,7 @@ export function normalizeSpeechCommandClassifierEnvelope(
       return Effect.fail(
         invalidEnvelope("Rewrite fields are invalid."),
       );
+    }
 
     case null:
       return Effect.fail(
@@ -264,7 +278,10 @@ export function classifyTranscript(
 
         switch (decoded.type) {
           case SpeechResultType.Ok:
-            return normalizeSpeechCommandClassifierEnvelope(decoded.value);
+            return normalizeSpeechCommandClassifierEnvelope(
+              decoded.value,
+              capabilities,
+            );
           case SpeechResultType.Error:
             return Effect.fail(invalidEnvelope(decoded.error));
           default:
