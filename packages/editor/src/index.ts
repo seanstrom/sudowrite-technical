@@ -1,4 +1,5 @@
 import { getSchema, type Editor, type JSONContent } from "@tiptap/core";
+import { generateJSON } from "@tiptap/html";
 import type { MarkType } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
 
@@ -7,6 +8,10 @@ const EditorSchema = getSchema([StarterKit]);
 export function validateTiptapDocumentContent(content: unknown): JSONContent {
   EditorSchema.nodeFromJSON(content);
   return content as JSONContent;
+}
+
+export function parseLegacyHtmlToTiptapContent(html: string): JSONContent {
+  return validateTiptapDocumentContent(generateJSON(html, [StarterKit]));
 }
 
 export const EditorCommandType = {

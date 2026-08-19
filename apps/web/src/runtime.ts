@@ -9,7 +9,7 @@ import {
   type TiptapDocumentContent,
 } from "@app/contracts";
 import type { EditorApplicationPort } from "@app/editor";
-import { BrowserHttpClient } from "@effect/platform-browser";
+import { FetchHttpClient } from "@effect/platform";
 import { RpcClient, RpcSerialization } from "@effect/rpc";
 import { Context, Effect, Either, Layer, ManagedRuntime } from "effect";
 import { createStore, type StoreApi } from "zustand/vanilla";
@@ -272,7 +272,7 @@ export class DocumentRpcClient extends Context.Tag("DocumentRpcClient")<
 export function createEffectRpcGateway(url = "/rpc"): DocumentGateway {
   const ProtocolLive = RpcClient.layerProtocolHttp({ url }).pipe(
     Layer.provide(RpcSerialization.layerNdjson),
-    Layer.provide(BrowserHttpClient.layerXMLHttpRequest),
+    Layer.provide(FetchHttpClient.layer),
   );
   const ClientLive = Layer.scoped(DocumentRpcClient, RpcClient.make(DocumentRpcs)).pipe(
     Layer.provide(ProtocolLive),

@@ -2,6 +2,12 @@ import { expect, test } from "@playwright/test";
 
 test("persists JSON content without replacing the editor or losing undo", async ({ page }) => {
   const sentence = `A persisted voice-ready draft ${Date.now()}.`;
+  const unsafeHeaderWarnings: string[] = [];
+  page.on("console", (message) => {
+    if (message.text().includes('Refused to set unsafe header "content-length"')) {
+      unsafeHeaderWarnings.push(message.text());
+    }
+  });
   await page.goto("/");
   const retry = page.getByRole("button", { name: "Try again" });
   const editor = page.locator('[contenteditable="true"][aria-label="Document editor"]');
@@ -19,6 +25,7 @@ test("persists JSON content without replacing the editor or losing undo", async 
   await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 10_000 });
   await page.reload();
   await expect(page.locator('[contenteditable="true"][aria-label="Document editor"]')).toContainText(sentence);
+  expect(unsafeHeaderWarnings).toEqual([]);
 });
 
 test("reviews and explicitly applies one server-proposed editor command", async ({ page }) => {

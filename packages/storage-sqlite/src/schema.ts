@@ -10,3 +10,8 @@ export const documents = sqliteTable("documents", {
   revision: integer("revision").notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
+
+export const dataMigrations = sqliteTable("app_data_migrations", {
+  id: text("id").primaryKey(),
+  appliedAt: integer("applied_at", { mode: "timestamp_ms" }).notNull(),
+});

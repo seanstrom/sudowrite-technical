@@ -7,6 +7,7 @@ import {
   EditorApplyResultType,
   EditorEdit,
   EditorValidationResultType,
+  parseLegacyHtmlToTiptapContent,
   validateTiptapDocumentContent,
 } from "./index";
 
@@ -59,5 +60,31 @@ describe("editor application port", () => {
     const editor = new Editor({ extensions: [StarterKit] });
     expect(() => validateTiptapDocumentContent({ type: "doc", content: [{ type: "unknown-node" }] })).toThrow();
     editor.destroy();
+  });
+
+  it("parses structural legacy HTML and marks through the configured schema", () => {
+    expect(parseLegacyHtmlToTiptapContent(
+      "<h2>Plan</h2><p>Hello <strong>bold</strong>.</p><ul><li><p>First</p></li></ul>",
+    )).toEqual({
+      type: "doc",
+      content: [
+        { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Plan" }] },
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "Hello " },
+            { type: "text", marks: [{ type: "bold" }], text: "bold" },
+            { type: "text", text: "." },
+          ],
+        },
+        {
+          type: "bulletList",
+          content: [{
+            type: "listItem",
+            content: [{ type: "paragraph", content: [{ type: "text", text: "First" }] }],
+          }],
+        },
+      ],
+    });
   });
 });

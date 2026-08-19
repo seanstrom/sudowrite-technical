@@ -5,6 +5,10 @@ import {
   type DocumentRecord,
   type DocumentRepositoryPort,
 } from "@app/domain";
+import {
+  parseLegacyHtmlToTiptapContent,
+  validateTiptapDocumentContent,
+} from "@app/editor";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
@@ -13,9 +17,12 @@ import { drizzle, type SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy";
 import { migrate } from "drizzle-orm/sqlite-proxy/migrator";
 import { Data, Effect } from "effect";
 
-import { documents } from "./schema";
+import { dataMigrations, documents } from "./schema";
 
-type Schema = { documents: typeof documents };
+type Schema = {
+  documents: typeof documents;
+  dataMigrations: typeof dataMigrations;
+};
 
 export type SqliteStorageState = {
   client: DatabaseSync;
@@ -40,6 +47,9 @@ export type CreateSqliteStorageOptions = Readonly<{
 }>;
 
 const DefaultMigrationsFolder = resolve(process.cwd(), "packages/storage-sqlite/drizzle");
+const LegacyLiteralEnvelopeMigrationHash =
+  "fe03b8a0207176f98408deda7f9a13cc02ad6e06cb7a7bd59ab5307136822690";
+const LegacyContentDataMigrationId = "tiptap-json-legacy-html-v1";
 const DefaultContent = {
   type: "doc",
   content: [
@@ -169,18 +179,82 @@ function migrateStorage(
   migrationsFolder: string,
 ): Effect.Effect<void, SqliteMigrationFailure> {
   return Effect.tryPromise({
-    try: () => migrate(state.database, async (queries) => {
-      state.client.exec("BEGIN");
-      try {
-        queries.forEach((query) => state.client.exec(query));
-        state.client.exec("COMMIT");
-      } catch (cause) {
-        state.client.exec("ROLLBACK");
-        throw cause;
-      }
-    }, { migrationsFolder }),
+    try: async () => {
+      await migrate(state.database, async (queries) => {
+        state.client.exec("BEGIN");
+        try {
+          queries.forEach((query) => state.client.exec(query));
+          state.client.exec("COMMIT");
+        } catch (cause) {
+          state.client.exec("ROLLBACK");
+          throw cause;
+        }
+      }, { migrationsFolder });
+      normalizeLegacyDocumentContent(state);
+    },
     catch: (cause) => new SqliteMigrationFailure({ migrationsFolder, cause }),
   });
+}
+
+function normalizeLegacyDocumentContent(state: SqliteStorageState): void {
+  const alreadyApplied = state.client.prepare(
+    "SELECT 1 FROM app_data_migrations WHERE id = ? LIMIT 1",
+  ).get(LegacyContentDataMigrationId);
+  if (alreadyApplied) return;
+  const migrationRows = state.client.prepare(
+    "SELECT hash FROM __drizzle_migrations",
+  ).all() as unknown as ReadonlyArray<Readonly<{ hash: string }>>;
+  const unwrapLiteralEnvelope = migrationRows.some(
+    ({ hash }) => hash === LegacyLiteralEnvelopeMigrationHash,
+  );
+  const rows = state.client.prepare(
+    "SELECT id, content FROM documents",
+  ).all() as unknown as ReadonlyArray<Readonly<{ id: string; content: string }>>;
+  const updates = rows.flatMap(({ id, content }) => {
+    const normalized = normalizeLegacyContentValue(content, unwrapLiteralEnvelope);
+    return normalized ? [{ id, content: normalized }] : [];
+  });
+  state.client.exec("BEGIN");
+  try {
+    const update = state.client.prepare("UPDATE documents SET content = ? WHERE id = ?");
+    updates.forEach(({ id, content }) => update.run(JSON.stringify(content), id));
+    state.client.prepare(
+      "INSERT INTO app_data_migrations (id, applied_at) VALUES (?, ?)",
+    ).run(LegacyContentDataMigrationId, Date.now());
+    state.client.exec("COMMIT");
+  } catch (cause) {
+    state.client.exec("ROLLBACK");
+    throw cause;
+  }
+}
+
+function normalizeLegacyContentValue(
+  storedContent: string,
+  unwrapLiteralEnvelope: boolean,
+): ReturnType<typeof validateTiptapDocumentContent> | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(storedContent);
+  } catch {
+    return parseLegacyHtmlToTiptapContent(storedContent);
+  }
+  const validated = validateTiptapDocumentContent(parsed);
+  if (!unwrapLiteralEnvelope) return undefined;
+  const legacyHtml = extractLiteralLegacyHtmlEnvelope(validated);
+  if (legacyHtml === undefined) return undefined;
+  const normalized = parseLegacyHtmlToTiptapContent(legacyHtml);
+  return JSON.stringify(normalized) === JSON.stringify(validated) ? undefined : normalized;
+}
+
+function extractLiteralLegacyHtmlEnvelope(
+  content: ReturnType<typeof validateTiptapDocumentContent>,
+): string | undefined {
+  if (content.type !== "doc" || content.content?.length !== 1) return undefined;
+  const paragraph = content.content[0];
+  if (paragraph?.type !== "paragraph" || paragraph.content?.length !== 1) return undefined;
+  const text = paragraph.content[0];
+  if (text?.type !== "text" || typeof text.text !== "string" || text.marks?.length) return undefined;
+  return text.text;
 }
 
 export function closeSqliteStorage(state: SqliteStorageState): void {

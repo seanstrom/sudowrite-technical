@@ -11,7 +11,6 @@
     "@app/contracts": "workspace:*",
     "@app/domain": "workspace:*",
     "@effect/platform": "catalog:",
-    "@effect/platform-browser": "catalog:",
     "@effect/rpc": "catalog:",
     "@tiptap/core": "catalog:",
     "@tiptap/react": "catalog:",
