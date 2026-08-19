@@ -1,0 +1,19 @@
+{
+  "name": "@app/speech-command",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./fixtures": "./src/fixtures.ts",
+    "./openrouter": "./src/openrouter.ts"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "scripts": {
+    "eval:live": "tsx src/live-eval.ts",
+    "test": "vitest run --root ../.. packages/speech-command/src",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}
