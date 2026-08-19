@@ -9,6 +9,13 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${webPort}`,
     browserName: "chromium",
+    permissions: ["microphone"],
+    launchOptions: {
+      args: [
+        "--use-fake-device-for-media-stream",
+        "--use-fake-ui-for-media-stream",
+      ],
+    },
   },
   webServer: [
     {
@@ -19,6 +26,7 @@ export default defineConfig({
       env: {
         DATABASE_PATH: process.env.DATABASE_PATH ?? "test-data/speech-edit-json.sqlite",
         SERVER_PORT: String(serverPort),
+        TRANSCRIPTION_MODE: "fake",
       },
     },
     {

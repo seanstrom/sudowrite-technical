@@ -16,6 +16,7 @@
     "@tiptap/react": "catalog:",
     "@tiptap/starter-kit": "catalog:",
     "@app/editor": "workspace:*",
+    "@app/voice-capture": "workspace:*",
     "effect": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

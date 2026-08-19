@@ -2,6 +2,7 @@ import {
   DocumentId,
   EditorProposalOutcomeType,
   ProposedEditorCommandType,
+  type CapturedEditorContext,
   type EditorProposalOutcome,
 } from "@app/contracts";
 import {
@@ -11,12 +12,13 @@ import {
   EditorValidationResultType,
   type EditorEdit as EditorEditValue,
 } from "@app/editor";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useStore } from "zustand";
 
 import { DocumentPhase } from "./document-model";
 import { DocumentEditor } from "./editor";
 import type { DocumentRuntime } from "./runtime";
+import { VoiceCaptureControls } from "./voice-capture";
 
 export function App({ runtime }: Readonly<{ runtime: DocumentRuntime }>) {
   const model = useStore(runtime.store);
@@ -24,6 +26,8 @@ export function App({ runtime }: Readonly<{ runtime: DocumentRuntime }>) {
   const [proposal, setProposal] = useState<EditorProposalOutcome>();
   const [proposalMessage, setProposalMessage] = useState<string>();
   const [reviewing, setReviewing] = useState(false);
+  const [retainedVoiceContext, setRetainedVoiceContext] =
+    useState<CapturedEditorContext>();
   useEffect(() => {
     runtime.load();
   }, [runtime]);
@@ -47,13 +51,23 @@ export function App({ runtime }: Readonly<{ runtime: DocumentRuntime }>) {
     : undefined;
   const preview = proposedEdit ? runtime.getEditorPort()?.preview(proposedEdit) : undefined;
 
+  const receiveTranscript = useCallback(
+    (transcript: string, context: CapturedEditorContext) => {
+      setInstruction(transcript);
+      setRetainedVoiceContext(context);
+      setProposal(undefined);
+      setProposalMessage("Transcript ready. Edit it if needed, then review the command.");
+    },
+    [],
+  );
+
   const reviewCommand = async () => {
     const port = runtime.getEditorPort();
     if (!port || !model.document) return setProposalMessage("The editor is not ready yet.");
     setReviewing(true);
     setProposalMessage(undefined);
     try {
-      const captured = port.capture();
+      const captured = retainedVoiceContext ?? port.capture();
       setProposal(await runtime.propose(instruction, {
         ...captured,
         documentId: DocumentId.make(captured.documentId),
@@ -76,6 +90,7 @@ export function App({ runtime }: Readonly<{ runtime: DocumentRuntime }>) {
     const result = port.apply(proposedEdit, proposal.proposalId);
     if (result.type === EditorApplyResultType.Applied) {
       setProposal(undefined);
+      setRetainedVoiceContext(undefined);
       setProposalMessage("Applied as one undoable editor change.");
     } else {
       setProposalMessage("reason" in result ? result.reason : result.message);
@@ -113,9 +128,13 @@ export function App({ runtime }: Readonly<{ runtime: DocumentRuntime }>) {
           <aside className="voice-slot" aria-label="Voice editing">
             <div className="voice-icon" aria-hidden="true">⌁</div>
             <h2>Voice edit</h2>
-            <p>Select text, then enter an instruction. The server proposes a typed command; only Apply changes the document.</p>
+            <p>Select text, record or type an instruction, review the transcript, then explicitly ask for a proposal. Only Apply changes the document.</p>
+            <VoiceCaptureControls
+              onTranscript={receiveTranscript}
+              runtime={runtime}
+            />
             <label>
-              Editing instruction
+              Transcript or editing instruction
               <textarea aria-label="Editing instruction" value={instruction} onChange={(event) => setInstruction(event.target.value)} />
             </label>
             <button disabled={reviewing || instruction.trim().length === 0} onClick={() => void reviewCommand()} type="button">
@@ -133,7 +152,10 @@ export function App({ runtime }: Readonly<{ runtime: DocumentRuntime }>) {
                   <p>{preview?.type === EditorPreviewResultType.Stale ? preview.reason : "This proposal cannot be applied."}</p>
                 )}
                 <button disabled={preview?.type !== EditorPreviewResultType.Ready} onClick={applyProposal} type="button">Apply</button>
-                <button onClick={() => setProposal(undefined)} type="button">Cancel</button>
+                <button onClick={() => {
+                  setProposal(undefined);
+                  setRetainedVoiceContext(undefined);
+                }} type="button">Cancel</button>
               </section>
             ) : null}
             {proposalMessage ? <div aria-live="polite">{proposalMessage}</div> : null}

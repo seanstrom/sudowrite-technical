@@ -15,7 +15,7 @@ status: active
 
 Speech to Edit is a small full-stack rich-text editing application built to explore a safe voice-driven editing workflow. A user writes in a real Tiptap editor, describes a change, reviews a typed proposal, and explicitly applies it as one undoable editor transaction.
 
-The current application includes the complete JSON-backed document spine and a separately tested speech-command classifier. Browser audio capture, transcription, and classifier-to-application wiring are intentionally still in progress.
+The current application includes the complete JSON-backed document spine, browser microphone capture, bounded server transcription, and a separately tested speech-command classifier. The transcript is editable and must enter the existing explicit review step; classifier-to-application wiring remains intentionally separate.
 
 ## What the application does
 
@@ -26,6 +26,9 @@ The current application includes the complete JSON-backed document spine and a s
 - Sends editing instructions to the server as proposal requests.
 - Shows a preview before changing the document.
 - Revalidates the captured editor target and applies an accepted proposal as one local transaction.
+- Records a bounded thirty-second browser audio instruction and releases microphone resources after stop, cancel, failure, or disposal.
+- Validates and transcribes the serialized recording through Effect RPC with either a deterministic test port or a server-only OpenRouter adapter.
+- Places the returned transcript into editable review state without automatically proposing or applying an editor change.
 - Provides a closed, versioned speech-command classifier experiment with an isolated server-only OpenRouter adapter.
 
 The application currently uses a deterministic proposal handler for the integrated editing flow. The model-backed classifier is implemented and tested in isolation but has not yet replaced that handler.
@@ -40,6 +43,9 @@ flowchart LR
   Application --> Repository["Document repository port"]
   Repository --> Storage["Drizzle ORM and SQLite"]
   Storage --> Migrations["Drizzle Kit migrations"]
+  Capture["Browser MediaRecorder"] --> RPC
+  RPC --> Transcription["Server transcription port"]
+  Transcription --> Review["Editable transcript review"]
   Classifier["Speech-command classifier"] -. "next integration" .-> Application
   Application --> Proposal["Typed editor proposal"]
   Proposal --> Editor
@@ -55,7 +61,7 @@ A runtime-owned Zustand store models loading, dirty, saving, ready, failed, and 
 
 ### Client and server boundary
 
-The browser and server communicate through typed Effect RPC contracts for loading, saving, and proposing editor commands. The server validates document JSON against the configured Tiptap StarterKit schema before exposing or persisting it. See `packages/contracts/src/index.ts` and `apps/server/src/application.ts`.
+The browser and server communicate through typed Effect RPC contracts for loading, saving, transcription, and proposing editor commands. Voice requests carry operation identity, bounded editor metadata, MIME, duration, declared bytes, and raw base64 audio. The server strictly validates the decoded audio before invoking an injected transcription port. It returns transcript or failure data, never executable editor behavior. See `packages/contracts/src/index.ts`, `packages/voice-capture/src/server.ts`, and `apps/server/src/application.ts`.
 
 ### Persistence
 
@@ -83,6 +89,7 @@ packages/
   domain/              Document values and repository ports
   editor/              Tiptap command, capture, preview, validation, and apply port
   speech-command/      Classifier, planner, fixtures, evaluation, and OpenRouter adapter
+  voice-capture/       Browser recorder runtime, transport validation, and STT adapter
   storage-sqlite/      Drizzle schema, migrations, and SQLite repository
 tools/                 Workspace tooling packages
 ```
@@ -154,7 +161,7 @@ pnpm playwright:install
 pnpm test:e2e
 ```
 
-The Playwright configuration starts the RPC server before the web application and uses an isolated SQLite test database. The browser scenarios verify JSON persistence across reload, preservation of undo and redo after autosave, proposal review without premature mutation, explicit application, and undo of an accepted proposal.
+The Playwright configuration starts the RPC server before the web application and uses an isolated SQLite test database. The browser scenarios verify JSON persistence across reload, preservation of undo and redo after autosave, proposal review without premature mutation, explicit application, undo of an accepted proposal, and a fake-microphone recording through transcript review and resource reacquisition.
 
 When the Drizzle schema changes, generate and review a migration:
 
@@ -218,12 +225,13 @@ Implemented and verified:
 - SQLite persistence and generated migrations;
 - autosave, conflict detection, retry, and local recovery;
 - preview, stale validation, explicit apply, and undo;
-- isolated speech-command classification and evaluation.
+- isolated speech-command classification and evaluation;
+- explicit browser microphone start, stop, cancel, duration, and disposal lifecycle;
+- bounded Effect RPC transcription with strict server validation;
+- editable transcript review that preserves the original editor capture.
 
 Not yet integrated:
 
-- microphone capture and recording lifecycle;
-- server-side transcription;
 - classifier-backed proposal RPC;
 - live selection rewriting through the second model call;
 - authentication and user-owned documents;
@@ -233,11 +241,10 @@ Not yet integrated:
 
 The next integration keeps the browser and server responsibilities narrow:
 
-1. The browser captures audio and serializable editor context.
-2. The server transcribes the bounded recording.
-3. The server classifies the transcript and optionally rewrites selected text.
-4. Effect RPC returns a typed proposal or modeled failure.
-5. The browser displays the transcript and proposal.
-6. Apply revalidates the capture and executes one local Tiptap transaction.
+1. Adapt the retained editor capture and transcript into the existing speech-command planner.
+2. Reconcile Selection versus Document, First versus All, and DocumentEnd commands with the editor proposal grammar explicitly.
+3. Invoke one bounded rewrite call only for a validated selection rewrite.
+4. Return a typed proposal or modeled unsupported outcome through Effect RPC.
+5. Keep Apply responsible for revalidation and one local Tiptap transaction.
 
 Provider credentials remain on the server throughout this flow.

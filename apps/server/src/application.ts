@@ -14,7 +14,18 @@ import {
   SaveDocumentOutcomeType,
   type DocumentRecord,
 } from "@app/domain";
-import { Effect } from "effect";
+import {
+  VoiceTranscriptionCommand,
+} from "@app/voice-capture";
+import {
+  runVoiceTranscription,
+  type VoiceTranscriptionPort,
+} from "@app/voice-capture/server";
+import { Context, Effect } from "effect";
+
+export class VoiceTranscriptionService extends Context.Tag(
+  "VoiceTranscriptionService",
+)<VoiceTranscriptionService, VoiceTranscriptionPort>() {}
 
 const toSnapshot = (document: DocumentRecord) => ({
   id: DocumentId.make(document.id),
@@ -124,5 +135,13 @@ export const DocumentRpcHandlersLive = DocumentRpcs.toLayer(
       }),
     ProposeEditorCommand: ({ transcript, context }) =>
       Effect.succeed(proposeEditorCommand(transcript, context)),
+    TranscribeVoice: ({ request }) =>
+      Effect.gen(function* () {
+        const transcription = yield* VoiceTranscriptionService;
+        return yield* runVoiceTranscription(
+          VoiceTranscriptionCommand.Transcribe(request),
+          transcription,
+        );
+      }),
   }),
 );

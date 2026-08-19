@@ -13,6 +13,7 @@
     "@app/domain": "workspace:*",
     "@app/editor": "workspace:*",
     "@app/storage-sqlite": "workspace:*",
+    "@app/voice-capture": "workspace:*",
     "@effect/platform": "catalog:",
     "@effect/platform-node": "catalog:",
     "@effect/rpc": "catalog:",

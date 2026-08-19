@@ -7,6 +7,8 @@ import {
   type EditorProposalOutcome,
   type SaveDocumentResult,
   type TiptapDocumentContent,
+  type VoiceTranscriptionRequest,
+  type VoiceTranscriptionResult,
 } from "@app/contracts";
 import type { EditorApplicationPort } from "@app/editor";
 import { FetchHttpClient } from "@effect/platform";
@@ -35,6 +37,10 @@ export type DocumentGateway = Readonly<{
     transcript: string;
     context: CapturedEditorContext;
   }>, signal: AbortSignal) => Promise<EditorProposalOutcome>;
+  transcribe: (
+    request: VoiceTranscriptionRequest,
+    signal: AbortSignal,
+  ) => Promise<VoiceTranscriptionResult>;
   dispose: () => Promise<void>;
 }>;
 
@@ -70,6 +76,10 @@ export type DocumentRuntime = Readonly<{
   queueSave: (content: TiptapDocumentContent) => void;
   retrySave: () => void;
   propose: (transcript: string, context: CapturedEditorContext) => Promise<EditorProposalOutcome>;
+  transcribe: (
+    request: VoiceTranscriptionRequest,
+    signal: AbortSignal,
+  ) => Promise<VoiceTranscriptionResult>;
   registerEditorPort: (port: EditorApplicationPort) => () => void;
   getEditorPort: () => EditorApplicationPort | undefined;
   dispose: () => Promise<void>;
@@ -230,6 +240,7 @@ export function createDocumentRuntime(
       const controller = new AbortController();
       return state.gateway.propose({ transcript, context }, controller.signal);
     },
+    transcribe: (request, signal) => state.gateway.transcribe(request, signal),
     registerEditorPort: (port) => {
       state.editorPort = port;
       return () => { if (state.editorPort === port) state.editorPort = undefined; };
@@ -266,6 +277,9 @@ export class DocumentRpcClient extends Context.Tag("DocumentRpcClient")<
       transcript: string;
       context: CapturedEditorContext;
     }) => Effect.Effect<EditorProposalOutcome, unknown>;
+    TranscribeVoice: (payload: {
+      request: VoiceTranscriptionRequest;
+    }) => Effect.Effect<VoiceTranscriptionResult, unknown>;
   }>
 >() {}
 
@@ -296,6 +310,12 @@ export function createEffectRpcGateway(url = "/rpc"): DocumentGateway {
     ),
     propose: (input, signal) => execute(
       Effect.flatMap(DocumentRpcClient, (client) => client.ProposeEditorCommand(input)),
+      signal,
+    ),
+    transcribe: (request, signal) => execute(
+      Effect.flatMap(DocumentRpcClient, (client) =>
+        client.TranscribeVoice({ request }),
+      ),
       signal,
     ),
     dispose: runtime.dispose,

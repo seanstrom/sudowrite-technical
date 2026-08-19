@@ -2,12 +2,17 @@ import { createServer, type Server as HttpServerInstance } from "node:http";
 import { DocumentRpcs } from "@app/contracts";
 import { DocumentRepository } from "@app/domain";
 import { createSqliteStorage, type SqliteStorageRuntime } from "@app/storage-sqlite";
+import { VoiceFailure } from "@app/voice-capture";
+import type { VoiceTranscriptionPort } from "@app/voice-capture/server";
 import { HttpServer } from "@effect/platform";
 import { NodeHttpServer } from "@effect/platform-node";
 import { RpcSerialization, RpcServer } from "@effect/rpc";
 import { Effect, Fiber, Layer } from "effect";
 
-import { DocumentRpcHandlersLive } from "./application";
+import {
+  DocumentRpcHandlersLive,
+  VoiceTranscriptionService,
+} from "./application";
 
 export type ServerRuntimeState = {
   storage: SqliteStorageRuntime;
@@ -28,7 +33,18 @@ export type CreateServerRuntimeOptions = Readonly<{
   migrationsFolder?: string;
   host?: string;
   port: number;
+  transcriptionPort?: VoiceTranscriptionPort;
 }>;
+
+const UnconfiguredTranscriptionPort: VoiceTranscriptionPort = {
+  transcribe: (request) =>
+    Effect.fail(
+      VoiceFailure.ProviderFailed(
+        request.request.operationId,
+        request.request.editorContext.captureId,
+      ),
+    ),
+};
 
 export async function createServerRuntime(options: CreateServerRuntimeOptions): Promise<ServerRuntime> {
   const storage = createSqliteStorage({
@@ -42,7 +58,13 @@ export async function createServerRuntime(options: CreateServerRuntimeOptions): 
     throw cause;
   }
   const RepositoryLive = Layer.succeed(DocumentRepository, storage.repository);
-  const HandlersLive = DocumentRpcHandlersLive.pipe(Layer.provide(RepositoryLive));
+  const TranscriptionLive = Layer.succeed(
+    VoiceTranscriptionService,
+    options.transcriptionPort ?? UnconfiguredTranscriptionPort,
+  );
+  const HandlersLive = DocumentRpcHandlersLive.pipe(
+    Layer.provide(Layer.merge(RepositoryLive, TranscriptionLive)),
+  );
   const RpcLive = Layer.merge(HandlersLive, RpcSerialization.layerNdjson);
   const host = options.host ?? "127.0.0.1";
   const httpServer = createServer();

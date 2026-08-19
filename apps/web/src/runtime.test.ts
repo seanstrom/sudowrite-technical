@@ -39,6 +39,7 @@ describe("document runtime", () => {
         return SaveDocumentResult.Saved({ ...input, id: input.documentId, revision: 1, updatedAt: new Date(1).toISOString() });
       },
       propose: async ({ transcript }) => ({ _tag: EditorProposalOutcomeType.Unsupported, transcript, reason: "unused" }),
+      transcribe: async () => ({ type: "Cancelled", operationId: "unused", captureId: "unused" }),
       dispose: async () => undefined,
     };
     const recovery = makeRecovery();
@@ -65,6 +66,7 @@ describe("document runtime", () => {
       load: async () => ({ id: documentId, title: "Draft", content: initialContent, revision: 0, updatedAt: new Date(0).toISOString() }),
       save: async () => { throw new Error("must not save"); },
       propose: async ({ transcript }) => ({ _tag: EditorProposalOutcomeType.Unsupported, transcript, reason: "unused" }),
+      transcribe: async () => ({ type: "Cancelled", operationId: "unused", captureId: "unused" }),
       dispose: async () => undefined,
     };
     const recovery = makeRecovery();

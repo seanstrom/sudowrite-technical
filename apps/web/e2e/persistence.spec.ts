@@ -43,3 +43,34 @@ test("reviews and explicitly applies one server-proposed editor command", async 
   await page.getByRole("button", { name: "Undo" }).click();
   await expect(editor).not.toContainText("A reviewed proposal");
 });
+
+test("records through the browser microphone and leaves the transcript reviewable", async ({ page }) => {
+  await page.goto("/");
+  const editor = page.locator('[contenteditable="true"][aria-label="Document editor"]');
+  await expect(editor).toBeVisible({ timeout: 10_000 });
+  await editor.click();
+  await page.keyboard.press("ControlOrMeta+A");
+  const before = await editor.textContent();
+
+  await page.getByRole("button", { name: "Record" }).click();
+  await expect(page.getByText(/Recording…/)).toBeVisible();
+  await page.waitForTimeout(350);
+  await page.getByRole("button", { name: "Stop" }).click();
+  await expect(page.getByText("Transcript ready to review")).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(page.getByLabel("Editing instruction")).toHaveValue(
+    "Replace the selection with clearer prose",
+  );
+  await expect(editor).toHaveText(before ?? "");
+
+  await page.getByRole("button", { name: "Review command" }).click();
+  await expect(page.getByRole("region", { name: "Proposed edit" })).toBeVisible();
+  await expect(editor).toHaveText(before ?? "");
+
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Record" }).click();
+  await expect(page.getByText(/Recording…/)).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByText("Ready to record")).toBeVisible();
+});

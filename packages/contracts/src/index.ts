@@ -149,5 +149,87 @@ export const ProposeEditorCommand = Rpc.make("ProposeEditorCommand", {
   error: DocumentUnavailable,
 });
 
-export const DocumentRpcs = RpcGroup.make(GetDocument, SaveDocument, ProposeEditorCommand);
+export const VoiceAudioMime = Schema.Literal(
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/ogg;codecs=opus",
+  "audio/mp4",
+  "audio/wav",
+);
+export const VoiceEditorContextMetadata = Schema.Struct({
+  captureId: Schema.String,
+  documentId: Schema.String,
+  documentFingerprint: Schema.String,
+  hasSelection: Schema.Boolean,
+  selectionLength: Schema.Number,
+});
+export const VoiceTranscriptionRequest = Schema.Struct({
+  operationId: Schema.String,
+  editorContext: VoiceEditorContextMetadata,
+  audioBase64: Schema.String,
+  mimeType: VoiceAudioMime,
+  durationMs: Schema.Number,
+  byteLength: Schema.Number,
+});
+export type VoiceTranscriptionRequest =
+  typeof VoiceTranscriptionRequest.Type;
+
+export const VoiceFailureType = {
+  InvalidRequest: "InvalidRequest",
+  PermissionDenied: "PermissionDenied",
+  UnsupportedMime: "UnsupportedMime",
+  CaptureFailed: "CaptureFailed",
+  AudioTooLarge: "AudioTooLarge",
+  DurationExceeded: "DurationExceeded",
+  ProviderFailed: "ProviderFailed",
+  ProviderTimedOut: "ProviderTimedOut",
+  InvalidProviderResponse: "InvalidProviderResponse",
+} as const;
+export const VoiceFailure = Schema.Struct({
+  type: Schema.Literal(...Object.values(VoiceFailureType)),
+  operationId: Schema.String,
+  captureId: Schema.String,
+  message: Schema.String,
+  status: Schema.optional(Schema.NullOr(Schema.Number)),
+});
+export const VoiceTranscriptionResultType = {
+  Transcribed: "Transcribed",
+  Rejected: "Rejected",
+  Cancelled: "Cancelled",
+} as const;
+export const TranscribedVoice = Schema.Struct({
+  type: Schema.Literal(VoiceTranscriptionResultType.Transcribed),
+  operationId: Schema.String,
+  captureId: Schema.String,
+  transcript: Schema.String,
+});
+export const RejectedVoiceTranscription = Schema.Struct({
+  type: Schema.Literal(VoiceTranscriptionResultType.Rejected),
+  failure: VoiceFailure,
+});
+export const CancelledVoiceTranscription = Schema.Struct({
+  type: Schema.Literal(VoiceTranscriptionResultType.Cancelled),
+  operationId: Schema.String,
+  captureId: Schema.String,
+});
+export const VoiceTranscriptionResult = Schema.Union(
+  TranscribedVoice,
+  RejectedVoiceTranscription,
+  CancelledVoiceTranscription,
+);
+export type VoiceTranscriptionResult =
+  typeof VoiceTranscriptionResult.Type;
+
+export const TranscribeVoice = Rpc.make("TranscribeVoice", {
+  payload: { request: VoiceTranscriptionRequest },
+  success: VoiceTranscriptionResult,
+  error: DocumentUnavailable,
+});
+
+export const DocumentRpcs = RpcGroup.make(
+  GetDocument,
+  SaveDocument,
+  ProposeEditorCommand,
+  TranscribeVoice,
+);
 export const DefaultDocumentId = DocumentId.make("draft");

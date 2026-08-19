@@ -149,6 +149,9 @@ importers:
       '@app/storage-sqlite':
         specifier: workspace:*
         version: link:../../packages/storage-sqlite
+      '@app/voice-capture':
+        specifier: workspace:*
+        version: link:../../packages/voice-capture
       '@effect/platform':
         specifier: 'catalog:'
         version: 0.97.1(effect@3.22.1)
@@ -173,6 +176,9 @@ importers:
       '@app/editor':
         specifier: workspace:*
         version: link:../../packages/editor
+      '@app/voice-capture':
+        specifier: workspace:*
+        version: link:../../packages/voice-capture
       '@effect/platform':
         specifier: 'catalog:'
         version: 0.97.1(effect@3.22.1)
