@@ -1,0 +1,20 @@
+{
+  "name": "@app/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "vite build",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@app/contracts": "workspace:*",
+    "@app/domain": "workspace:*",
+    "@app/storage-sqlite": "workspace:*",
+    "@effect/platform": "catalog:",
+    "@effect/platform-node": "catalog:",
+    "@effect/rpc": "catalog:",
+    "effect": "catalog:"
+  }
+}

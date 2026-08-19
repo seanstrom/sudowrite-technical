@@ -1,0 +1,21 @@
+{
+  "name": "@app/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "@app/contracts": "workspace:*",
+    "@app/domain": "workspace:*",
+    "@effect/platform": "catalog:",
+    "@effect/platform-browser": "catalog:",
+    "@effect/rpc": "catalog:",
+    "effect": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "zustand": "catalog:"
+  }
+}

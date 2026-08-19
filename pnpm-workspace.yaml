@@ -1,0 +1,36 @@
+packages:
+  - apps/*
+  - packages/*
+  - tools/*
+
+catalog:
+  "@effect/platform": 0.97.1
+  "@effect/platform-browser": 0.77.1
+  "@effect/platform-node": 0.108.1
+  "@effect/rpc": 0.76.2
+  "@playwright/test": 1.62.1
+  "@testing-library/jest-dom": 7.0.1
+  "@testing-library/react": 16.3.2
+  "@types/node": 26.2.0
+  "@types/react": 19.2.18
+  "@types/react-dom": 19.2.4
+  "@vitejs/plugin-react": 5.1.2
+  concurrently: 10.0.5
+  drizzle-orm: 0.45.2
+  effect: 3.22.1
+  jsdom: 30.0.1
+  react: 19.2.8
+  react-dom: 19.2.8
+  tsx: 4.23.12
+  typescript: 5.9.3
+  vite: 7.3.1
+  vitest: 4.1.10
+  zustand: 5.0.15
+
+allowBuilds:
+  '@parcel/watcher': false
+  esbuild: true
+  msgpackr-extract: false
+
+onlyBuiltDependencies:
+  - esbuild

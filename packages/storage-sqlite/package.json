@@ -1,0 +1,14 @@
+{
+  "name": "@app/storage-sqlite",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@app/domain": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "effect": "catalog:"
+  }
+}
