@@ -6,6 +6,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts"
+  },
   "dependencies": {
     "@app/domain": "workspace:*",
     "drizzle-orm": "catalog:",

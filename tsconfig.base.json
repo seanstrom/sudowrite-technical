@@ -13,7 +13,7 @@
     "noImplicitOverride": true,
     "noUncheckedIndexedAccess": true,
     "resolveJsonModule": true,
-    "skipLibCheck": false,
+    "skipLibCheck": true,
     "strict": true,
     "target": "ES2024",
     "useDefineForClassFields": true

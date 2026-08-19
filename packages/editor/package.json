@@ -1,0 +1,13 @@
+{
+  "name": "@app/editor",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@tiptap/core": "catalog:",
+    "@tiptap/starter-kit": "catalog:"
+  }
+}

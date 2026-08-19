@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "concurrently -k -n server,web -c cyan,magenta \"pnpm --filter @app/server dev\" \"pnpm --filter @app/web dev\"",
     "build": "pnpm -r --if-present build",
+    "db:generate": "pnpm --filter @app/storage-sqlite db:generate",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "playwright:install": "playwright install chromium",
@@ -24,6 +25,7 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "concurrently": "catalog:",
+    "drizzle-kit": "catalog:",
     "jsdom": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
