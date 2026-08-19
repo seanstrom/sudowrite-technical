@@ -1,5 +1,4 @@
 import {
-  DocumentId,
   EditorProposalOutcomeType,
   ProposedEditorCommandType,
   type CapturedEditorContext,
@@ -13,7 +12,7 @@ import {
   type EditorEdit as EditorEditValue,
   validateTiptapDocumentContent,
 } from "@app/editor";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "zustand";
 
 import { DocumentPhase } from "./document-model";
@@ -23,12 +22,12 @@ import { VoiceCaptureControls } from "./voice-capture";
 
 export function App({ runtime }: Readonly<{ runtime: DocumentRuntime }>) {
   const model = useStore(runtime.store);
-  const [instruction, setInstruction] = useState("Replace the selection with clearer prose");
   const [proposal, setProposal] = useState<EditorProposalOutcome>();
   const [proposalMessage, setProposalMessage] = useState<string>();
   const [reviewing, setReviewing] = useState(false);
   const [retainedVoiceContext, setRetainedVoiceContext] =
     useState<CapturedEditorContext>();
+  const proposalGeneration = useRef(0);
   useEffect(() => {
     runtime.load();
   }, [runtime]);
@@ -54,34 +53,40 @@ export function App({ runtime }: Readonly<{ runtime: DocumentRuntime }>) {
 
   const receiveTranscript = useCallback(
     (transcript: string, context: CapturedEditorContext) => {
-      setInstruction(transcript);
+      const generation = proposalGeneration.current + 1;
+      proposalGeneration.current = generation;
       setRetainedVoiceContext(context);
       setProposal(undefined);
-      setProposalMessage("Transcript ready. Edit it if needed, then review the command.");
+      setProposalMessage("Interpreting spoken command…");
+      setReviewing(true);
+      void runtime
+        .propose(transcript, context)
+        .then((nextProposal) => {
+          if (proposalGeneration.current !== generation) return;
+          setProposal(nextProposal);
+          setProposalMessage(undefined);
+        })
+        .catch((cause: unknown) => {
+          if (proposalGeneration.current !== generation) return;
+          setProposalMessage(
+            cause instanceof Error
+              ? cause.message
+              : "The spoken command could not be reviewed.",
+          );
+        })
+        .finally(() => {
+          if (proposalGeneration.current === generation) setReviewing(false);
+        });
+    },
+    [runtime],
+  );
+
+  useEffect(
+    () => () => {
+      proposalGeneration.current += 1;
     },
     [],
   );
-
-  const reviewCommand = async () => {
-    const port = runtime.getEditorPort();
-    if (!port || !model.document) return setProposalMessage("The editor is not ready yet.");
-    setReviewing(true);
-    setProposalMessage(undefined);
-    try {
-      const captured = retainedVoiceContext ?? port.capture({
-        captureId: crypto.randomUUID(),
-        documentRevision: model.document.revision,
-      });
-      setProposal(await runtime.propose(instruction, {
-        ...captured,
-        documentId: DocumentId.make(captured.documentId),
-      }));
-    } catch (cause) {
-      setProposalMessage(cause instanceof Error ? cause.message : "The command could not be reviewed.");
-    } finally {
-      setReviewing(false);
-    }
-  };
 
   const applyProposal = () => {
     const port = runtime.getEditorPort();
@@ -141,18 +146,12 @@ export function App({ runtime }: Readonly<{ runtime: DocumentRuntime }>) {
           <aside className="voice-slot" aria-label="Voice editing">
             <div className="voice-icon" aria-hidden="true">⌁</div>
             <h2>Voice edit</h2>
-            <p>Select text, record or type an instruction, review the transcript, then explicitly ask for a proposal. Only Apply changes the document.</p>
+            <p>Select text and record an instruction. Review the proposed edit, then choose Apply. Nothing changes the document before Apply.</p>
             <VoiceCaptureControls
               onTranscript={receiveTranscript}
               runtime={runtime}
             />
-            <label>
-              Transcript or editing instruction
-              <textarea aria-label="Editing instruction" value={instruction} onChange={(event) => setInstruction(event.target.value)} />
-            </label>
-            <button disabled={reviewing || instruction.trim().length === 0} onClick={() => void reviewCommand()} type="button">
-              {reviewing ? "Reviewing…" : "Review command"}
-            </button>
+            {reviewing ? <div aria-live="polite">Reviewing spoken command…</div> : null}
             {proposal?._tag === EditorProposalOutcomeType.Unsupported ? (
               <div className="notice" role="status">{proposal.reason}</div>
             ) : null}
@@ -168,6 +167,7 @@ export function App({ runtime }: Readonly<{ runtime: DocumentRuntime }>) {
             {proposal?._tag === EditorProposalOutcomeType.Proposed ? (
               <section className="proposal-review" aria-label="Proposed edit">
                 <h3>{proposal.summary}</h3>
+                <p>Heard: “{proposal.transcript}”</p>
                 {preview?.type === EditorPreviewResultType.Ready ? (
                   <p><del>{preview.before || "(empty)"}</del> → <ins>{preview.after || "(empty)"}</ins></p>
                 ) : (
@@ -175,6 +175,7 @@ export function App({ runtime }: Readonly<{ runtime: DocumentRuntime }>) {
                 )}
                 <button disabled={preview?.type !== EditorPreviewResultType.Ready} onClick={applyProposal} type="button">Apply</button>
                 <button onClick={() => {
+                  proposalGeneration.current += 1;
                   setProposal(undefined);
                   setRetainedVoiceContext(undefined);
                 }} type="button">Cancel</button>

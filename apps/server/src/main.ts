@@ -106,20 +106,21 @@ function makeInterpretationRuntime(): Readonly<{
 }
 
 const interpretation = makeInterpretationRuntime();
+const serverPort = Number(process.env.SERVER_PORT ?? 3001);
 
 const runtime = await createServerRuntime({
   databasePath: resolve(process.env.DATABASE_PATH ?? "./data/speech-edit.sqlite"),
   migrationsFolder: process.env.MIGRATIONS_PATH ?? fileURLToPath(
     new URL("../../../packages/storage-sqlite/drizzle", import.meta.url),
   ),
-  port: Number(process.env.SERVER_PORT ?? 3001),
+  port: serverPort,
   transcriptionPort: makeTranscriptionPort(),
   interpretationService: interpretation.service,
   disposeInterpretation: interpretation.dispose,
 });
 
 await runtime.start();
-console.log("Speech-to-Edit server ready at http://127.0.0.1:3001/rpc");
+console.log(`Speech-to-Edit server ready at http://127.0.0.1:${serverPort}/rpc`);
 
 const stop = async () => {
   await runtime.dispose();
