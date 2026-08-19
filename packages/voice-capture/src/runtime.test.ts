@@ -38,6 +38,7 @@ function makeHarness() {
   let listeners: VoiceRecorderListeners | null = null;
   let timer: (() => void) | null = null;
   let disposed = false;
+  const onRecordingStarted = vi.fn();
   const recorder: VoiceMediaRecorder = {
     mimeType: VoiceAudioMime.WebmOpus,
     start: vi.fn(),
@@ -67,14 +68,19 @@ function makeHarness() {
       timer = null;
     },
   };
-  const runtime = new VoiceCaptureRuntime(capabilities, (outcome) => {
-    outcomes.push(outcome);
-  });
+  const runtime = new VoiceCaptureRuntime(
+    capabilities,
+    (outcome) => {
+      outcomes.push(outcome);
+    },
+    { onRecordingStarted },
+  );
 
   return {
     runtime,
     outcomes,
     recorder,
+    onRecordingStarted,
     stopTracks,
     setNow: (value: number) => {
       now = value;
@@ -108,6 +114,8 @@ describe("VoiceCaptureRuntime", () => {
       },
     ]);
     expect(harness.stopTracks).toHaveBeenCalledOnce();
+    expect(harness.onRecordingStarted).toHaveBeenCalledOnce();
+    expect(harness.onRecordingStarted).toHaveBeenCalledWith(10);
     expect(harness.getDisposed()).toBe(true);
     expect(harness.runtime.state.phase).toBe(VoiceCapturePhase.Idle);
   });
@@ -130,6 +138,46 @@ describe("VoiceCaptureRuntime", () => {
     expect(harness.runtime.state.phase).toBe(VoiceCapturePhase.Idle);
   });
 
+  it("treats stop during microphone acquisition as cancellation", async () => {
+    let resolveStream: ((stream: { stopTracks: () => void }) => void) | undefined;
+    const stopTracks = vi.fn();
+    const recorderStart = vi.fn();
+    const outcomes: Array<VoiceCaptureOutcome> = [];
+    const runtime = new VoiceCaptureRuntime(
+      {
+        getAudioStream: () =>
+          new Promise((resolve) => {
+            resolveStream = resolve;
+          }),
+        supportsMimeType: (mimeType) => mimeType === VoiceAudioMime.WebmOpus,
+        makeRecorder: () => ({
+          mimeType: VoiceAudioMime.WebmOpus,
+          start: recorderStart,
+          requestData: () => undefined,
+          stop: () => undefined,
+          dispose: () => undefined,
+        }),
+        encodeBlobBase64: async () => "",
+        now: () => 0,
+        setTimeout: () => 1,
+        clearTimeout: () => undefined,
+      },
+      (outcome) => {
+        outcomes.push(outcome);
+      },
+    );
+
+    runtime.start(CaptureInput);
+    runtime.stop();
+    resolveStream?.({ stopTracks });
+    await flush();
+
+    expect(outcomes[0]?.type).toBe(VoiceCaptureOutcomeType.Cancelled);
+    expect(recorderStart).not.toHaveBeenCalled();
+    expect(stopTracks).toHaveBeenCalledOnce();
+    expect(runtime.state.phase).toBe(VoiceCapturePhase.Idle);
+  });
+
   it("rejects an oversized stream before base64 encoding", async () => {
     const harness = makeHarness();
     harness.runtime.start(CaptureInput);
@@ -144,6 +192,37 @@ describe("VoiceCaptureRuntime", () => {
       failure: { type: VoiceFailureType.AudioTooLarge },
     });
     expect(harness.stopTracks).toHaveBeenCalledOnce();
+  });
+
+  it("releases the acquired stream when recorder construction fails", async () => {
+    const outcomes: Array<VoiceCaptureOutcome> = [];
+    const stopTracks = vi.fn();
+    const runtime = new VoiceCaptureRuntime(
+      {
+        getAudioStream: async () => ({ stopTracks }),
+        supportsMimeType: (mimeType) => mimeType === VoiceAudioMime.WebmOpus,
+        makeRecorder: () => {
+          throw new DOMException("Unsupported recorder", "NotSupportedError");
+        },
+        encodeBlobBase64: async () => "",
+        now: () => 0,
+        setTimeout: () => 1,
+        clearTimeout: () => undefined,
+      },
+      (outcome) => {
+        outcomes.push(outcome);
+      },
+    );
+
+    runtime.start(CaptureInput);
+    await flush();
+
+    expect(outcomes[0]).toMatchObject({
+      type: VoiceCaptureOutcomeType.Failed,
+      failure: { type: VoiceFailureType.CaptureFailed },
+    });
+    expect(stopTracks).toHaveBeenCalledOnce();
+    expect(runtime.state.phase).toBe(VoiceCapturePhase.Idle);
   });
 
   it("stops from the bounded duration timer and disposes idempotently", async () => {

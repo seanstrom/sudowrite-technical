@@ -1,6 +1,7 @@
 export const VoiceCaptureLimits = {
   MaximumDurationMs: 30_000,
-  MaximumAudioBytes: 4 * 1024 * 1024,
+  MaximumAudioBytes: 6 * 1024 * 1024,
+  PreferredAudioBitsPerSecond: 64_000,
   MaximumIdentifierLength: 128,
   MaximumTranscriptLength: 16_000,
 } as const;
@@ -161,7 +162,7 @@ export const VoiceFailure = {
     type: VoiceFailureType.AudioTooLarge,
     operationId,
     captureId,
-    message: "The recording exceeded the allowed byte size.",
+    message: "The recording is too large. Try a shorter recording.",
   }),
   DurationExceeded: (
     operationId: string,

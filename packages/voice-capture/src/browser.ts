@@ -1,4 +1,4 @@
-import type { VoiceAudioMime } from "./domain.ts";
+import { VoiceCaptureLimits, type VoiceAudioMime } from "./domain.ts";
 import type {
   VoiceAudioStream,
   VoiceCaptureCapabilities,
@@ -45,7 +45,15 @@ function adaptMediaRecorder(
   mimeType: VoiceAudioMime,
   listeners: VoiceRecorderListeners,
 ): VoiceMediaRecorder {
-  const recorder = new Recorder(stream.raw, { mimeType });
+  let recorder: MediaRecorder;
+  try {
+    recorder = new Recorder(stream.raw, {
+      mimeType,
+      audioBitsPerSecond: VoiceCaptureLimits.PreferredAudioBitsPerSecond,
+    });
+  } catch {
+    recorder = new Recorder(stream.raw, { mimeType });
+  }
   const onDataAvailable = (event: BlobEvent) => listeners.onChunk(event.data);
   const onStop = () => listeners.onStopped();
   const onError = () => listeners.onFailed();

@@ -131,6 +131,10 @@ export type VoiceCaptureCapabilities = Readonly<{
   clearTimeout: (timer: unknown) => void;
 }>;
 
+export type VoiceCaptureObserver = Readonly<{
+  onRecordingStarted: (startedAtMs: number) => void;
+}>;
+
 export type VoiceCaptureRuntimeState = {
   phase: VoiceCapturePhase;
   generation: number;
@@ -145,11 +149,13 @@ export type VoiceCaptureRuntimeState = {
   disposed: boolean;
   capabilities: VoiceCaptureCapabilities;
   emit: (outcome: VoiceCaptureOutcomeValue) => void | Promise<void>;
+  observer: VoiceCaptureObserver;
 };
 
 function makeVoiceCaptureRuntimeState(
   capabilities: VoiceCaptureCapabilities,
   emit: VoiceCaptureRuntimeState["emit"],
+  observer: VoiceCaptureObserver,
 ): VoiceCaptureRuntimeState {
   return {
     phase: VoiceCapturePhase.Idle,
@@ -165,6 +171,7 @@ function makeVoiceCaptureRuntimeState(
     disposed: false,
     capabilities,
     emit,
+    observer,
   };
 }
 
@@ -253,6 +260,7 @@ async function acquireCaptureResources(
       return;
     }
 
+    mutState.stream = stream;
     const recorder = mutState.capabilities.makeRecorder(stream, mimeType, {
       onChunk: (chunk) =>
         receiveVoiceCaptureAction(
@@ -271,11 +279,11 @@ async function acquireCaptureResources(
         ),
     });
 
-    mutState.stream = stream;
     mutState.recorder = recorder;
+    recorder.start();
     mutState.startedAtMs = mutState.capabilities.now();
     mutState.phase = VoiceCapturePhase.Recording;
-    recorder.start();
+    mutState.observer.onRecordingStarted(mutState.startedAtMs);
     mutState.timer = mutState.capabilities.setTimeout(
       () =>
         receiveVoiceCaptureAction(
@@ -330,6 +338,10 @@ function startCapture(
 }
 
 function requestCaptureStop(mutState: VoiceCaptureRuntimeState): void {
+  if (mutState.phase === VoiceCapturePhase.Acquiring) {
+    cancelCapture(mutState);
+    return;
+  }
   if (mutState.phase !== VoiceCapturePhase.Recording) return;
   mutState.phase = VoiceCapturePhase.Stopping;
   clearCaptureTimer(mutState);
@@ -545,8 +557,9 @@ export class VoiceCaptureRuntime {
   constructor(
     capabilities: VoiceCaptureCapabilities,
     emit: VoiceCaptureRuntimeState["emit"],
+    observer: VoiceCaptureObserver = { onRecordingStarted: () => undefined },
   ) {
-    this.state = makeVoiceCaptureRuntimeState(capabilities, emit);
+    this.state = makeVoiceCaptureRuntimeState(capabilities, emit, observer);
   }
 
   start(input: StartVoiceCaptureInput): void {

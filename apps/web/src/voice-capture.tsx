@@ -16,6 +16,7 @@ import type { DocumentRuntime } from "./runtime";
 
 export const VoiceControlPhase = {
   Idle: "Idle",
+  Acquiring: "Acquiring",
   Recording: "Recording",
   Stopping: "Stopping",
   Transcribing: "Transcribing",
@@ -186,6 +187,28 @@ export function VoiceCaptureControls({
         MediaRecorder,
       }),
       handleOutcome,
+      {
+        onRecordingStarted: (startedAtMs) => {
+          if (mutState.disposed) return;
+          mutState.startedAtMs = startedAtMs;
+          setProjection({
+            phase: VoiceControlPhase.Recording,
+            elapsedSeconds: 0,
+            status: "Recording…",
+            error: undefined,
+          });
+          stopElapsedProjection(mutState);
+          mutState.elapsedTimer = setInterval(() => {
+            const startedAt = mutState.startedAtMs;
+            if (startedAt === undefined) return;
+            const elapsedSeconds = Math.min(
+              Math.ceil((performance.now() - startedAt) / 1_000),
+              VoiceCaptureLimits.MaximumDurationMs / 1_000,
+            );
+            setProjection((current) => ({ ...current, elapsedSeconds }));
+          }, 250);
+        },
+      },
     );
     return () => {
       mutState.disposed = true;
@@ -233,7 +256,12 @@ export function VoiceCaptureControls({
       documentId: DocumentId.make(captured.documentId),
     };
     mutState.retainedContext = context;
-    mutState.startedAtMs = performance.now();
+    setProjection({
+      phase: VoiceControlPhase.Acquiring,
+      elapsedSeconds: 0,
+      status: "Waiting for microphone…",
+      error: undefined,
+    });
     mutState.capture.start({
       operationId: crypto.randomUUID(),
       editorContext: {
@@ -246,22 +274,6 @@ export function VoiceCaptureControls({
         selectionLength: context.target.selectedText.length,
       },
     });
-    setProjection({
-      phase: VoiceControlPhase.Recording,
-      elapsedSeconds: 0,
-      status: "Recording…",
-      error: undefined,
-    });
-    stopElapsedProjection(mutState);
-    mutState.elapsedTimer = setInterval(() => {
-      const startedAtMs = mutState.startedAtMs;
-      if (startedAtMs === undefined) return;
-      const elapsedSeconds = Math.min(
-        Math.ceil((performance.now() - startedAtMs) / 1_000),
-        VoiceCaptureLimits.MaximumDurationMs / 1_000,
-      );
-      setProjection((current) => ({ ...current, elapsedSeconds }));
-    }, 250);
   };
 
   const stopRecording = () => {
@@ -284,13 +296,14 @@ export function VoiceCaptureControls({
   };
 
   const isRecording = projection.phase === VoiceControlPhase.Recording;
+  const isAcquiring = projection.phase === VoiceControlPhase.Acquiring;
   const isStopping = projection.phase === VoiceControlPhase.Stopping;
   const isTranscribing = projection.phase === VoiceControlPhase.Transcribing;
 
   return (
     <section className="voice-capture-controls" aria-label="Voice capture">
       <div className="voice-capture-actions">
-        {!isRecording && !isStopping && !isTranscribing ? (
+        {!isAcquiring && !isRecording && !isStopping && !isTranscribing ? (
           <button
             onClick={startRecording}
             onPointerDown={preserveEditorSelection}
@@ -308,7 +321,7 @@ export function VoiceCaptureControls({
             Stop
           </button>
         ) : null}
-        {isRecording || isStopping || isTranscribing ? (
+        {isAcquiring || isRecording || isStopping || isTranscribing ? (
           <button
             className="secondary"
             onClick={cancelRecording}
