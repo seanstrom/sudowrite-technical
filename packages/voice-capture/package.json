@@ -1,0 +1,21 @@
+{
+  "name": "@app/voice-capture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/domain.ts",
+    "./browser": "./src/browser.ts",
+    "./runtime": "./src/runtime.ts",
+    "./server": "./src/server.ts",
+    "./openrouter": "./src/openrouter.ts"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  },
+  "scripts": {
+    "eval:live": "tsx src/live-eval.ts",
+    "test": "vitest run --root ../.. packages/voice-capture/src",
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}
