@@ -11,6 +11,7 @@
   "dependencies": {
     "@app/contracts": "workspace:*",
     "@app/domain": "workspace:*",
+    "@app/editor": "workspace:*",
     "@app/storage-sqlite": "workspace:*",
     "@effect/platform": "catalog:",
     "@effect/platform-node": "catalog:",

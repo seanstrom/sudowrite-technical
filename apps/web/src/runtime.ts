@@ -1,9 +1,12 @@
 import {
   DocumentRpcs,
   SaveDocumentResultType,
+  type CapturedEditorContext,
   type DocumentId,
   type DocumentSnapshot,
+  type EditorProposalOutcome,
   type SaveDocumentResult,
+  type TiptapDocumentContent,
 } from "@app/contracts";
 import type { EditorApplicationPort } from "@app/editor";
 import { BrowserHttpClient } from "@effect/platform-browser";
@@ -25,10 +28,20 @@ export type DocumentGateway = Readonly<{
   save: (input: Readonly<{
     documentId: DocumentId;
     title: string;
-    html: string;
+    content: TiptapDocumentContent;
     expectedRevision: number;
   }>, signal: AbortSignal) => Promise<SaveDocumentResult>;
+  propose: (input: Readonly<{
+    transcript: string;
+    context: CapturedEditorContext;
+  }>, signal: AbortSignal) => Promise<EditorProposalOutcome>;
   dispose: () => Promise<void>;
+}>;
+
+export type DraftRecoveryPort = Readonly<{
+  read: (documentId: DocumentId) => TiptapDocumentContent | undefined;
+  write: (documentId: DocumentId, content: TiptapDocumentContent) => void;
+  clear: (documentId: DocumentId) => void;
 }>;
 
 export type DocumentStore = Omit<StoreApi<DocumentModel>, "setState"> & Readonly<{
@@ -39,9 +52,10 @@ export type DocumentStore = Omit<StoreApi<DocumentModel>, "setState"> & Readonly
 export type DocumentRuntimeState = {
   store: DocumentStore;
   gateway: DocumentGateway;
+  recovery: DraftRecoveryPort;
   documentId: DocumentId;
   editorPort: EditorApplicationPort | undefined;
-  pendingHtml: string | undefined;
+  pendingContent: TiptapDocumentContent | undefined;
   debounceTimer: ReturnType<typeof setTimeout> | undefined;
   activeController: AbortController | undefined;
   saving: boolean;
@@ -53,7 +67,9 @@ export type DocumentRuntime = Readonly<{
   state: DocumentRuntimeState;
   store: DocumentStore;
   load: () => void;
-  queueSave: (html: string) => void;
+  queueSave: (content: TiptapDocumentContent) => void;
+  retrySave: () => void;
+  propose: (transcript: string, context: CapturedEditorContext) => Promise<EditorProposalOutcome>;
   registerEditorPort: (port: EditorApplicationPort) => () => void;
   getEditorPort: () => EditorApplicationPort | undefined;
   dispose: () => Promise<void>;
@@ -73,7 +89,16 @@ function loadDocument(state: DocumentRuntimeState): void {
   dispatchDocumentAction(state, DocumentAction.RequestedDocument());
   void state.gateway.load(state.documentId, controller.signal).then(
     (document) => {
-      if (!controller.signal.aborted) dispatchDocumentAction(state, DocumentAction.LoadedDocument(document));
+      if (controller.signal.aborted) return;
+      const recoveredContent = state.recovery.read(state.documentId);
+      if (recoveredContent === undefined) {
+        dispatchDocumentAction(state, DocumentAction.LoadedDocument(document));
+        return;
+      }
+      dispatchDocumentAction(state, DocumentAction.LoadedDocument({ ...document, content: recoveredContent }));
+      state.pendingContent = recoveredContent;
+      dispatchDocumentAction(state, DocumentAction.ChangedDocument());
+      scheduleDocumentSave(state);
     },
     (cause: unknown) => {
       if (!controller.signal.aborted) dispatchDocumentAction(state, DocumentAction.FailedDocumentLoad(
@@ -85,10 +110,15 @@ function loadDocument(state: DocumentRuntimeState): void {
   });
 }
 
-function queueDocumentSave(state: DocumentRuntimeState, html: string): void {
+function queueDocumentSave(state: DocumentRuntimeState, content: TiptapDocumentContent): void {
   if (state.disposed) return;
-  state.pendingHtml = html;
+  state.pendingContent = content;
+  state.recovery.write(state.documentId, content);
   dispatchDocumentAction(state, DocumentAction.ChangedDocument());
+  scheduleDocumentSave(state);
+}
+
+function scheduleDocumentSave(state: DocumentRuntimeState): void {
   if (state.debounceTimer) clearTimeout(state.debounceTimer);
   state.debounceTimer = setTimeout(() => {
     state.debounceTimer = undefined;
@@ -98,9 +128,9 @@ function queueDocumentSave(state: DocumentRuntimeState, html: string): void {
 
 async function flushDocumentSave(state: DocumentRuntimeState): Promise<void> {
   const document = state.store.getState().document;
-  if (state.disposed || state.saving || !document || state.pendingHtml === undefined) return;
-  const html = state.pendingHtml;
-  state.pendingHtml = undefined;
+  if (state.disposed || state.saving || !document || state.pendingContent === undefined) return;
+  const content = state.pendingContent;
+  state.pendingContent = undefined;
   state.saving = true;
   const controller = new AbortController();
   state.activeController = controller;
@@ -109,42 +139,81 @@ async function flushDocumentSave(state: DocumentRuntimeState): Promise<void> {
     const result = await state.gateway.save({
       documentId: state.documentId,
       title: document.title,
-      html,
+      content,
       expectedRevision: document.revision,
     }, controller.signal);
     if (controller.signal.aborted || state.disposed) return;
     switch (result._tag) {
       case SaveDocumentResultType.Saved:
         dispatchDocumentAction(state, DocumentAction.SavedDocument(result.document));
+        if (state.pendingContent === undefined && JSON.stringify(state.recovery.read(state.documentId)) === JSON.stringify(content)) {
+          state.recovery.clear(state.documentId);
+        }
         break;
       case SaveDocumentResultType.Conflicted:
         dispatchDocumentAction(state, DocumentAction.ConflictedDocument(result.current));
-        state.pendingHtml = undefined;
+        state.pendingContent ??= content;
         break;
       default:
         result satisfies never;
     }
   } catch (cause) {
-    if (!controller.signal.aborted) dispatchDocumentAction(state, DocumentAction.FailedDocumentSave(
-      cause instanceof Error ? cause.message : "The document could not be saved.",
-    ));
+    state.pendingContent ??= content;
+    if (!controller.signal.aborted && !state.disposed) {
+      dispatchDocumentAction(state, DocumentAction.FailedDocumentSave(
+        cause instanceof Error ? cause.message : "The document could not be saved.",
+      ));
+    }
   } finally {
     if (state.activeController === controller) state.activeController = undefined;
     state.saving = false;
-    if (state.pendingHtml !== undefined) void flushDocumentSave(state);
+    if (state.pendingContent !== undefined && state.store.getState().phase !== "Failed" && state.store.getState().phase !== "Conflicted") {
+      void flushDocumentSave(state);
+    }
   }
 }
 
-export function createDocumentRuntime(gateway: DocumentGateway, documentId: DocumentId): DocumentRuntime {
+const noDraftRecovery: DraftRecoveryPort = {
+  read: () => undefined,
+  write: () => undefined,
+  clear: () => undefined,
+};
+
+export function createLocalStorageDraftRecovery(storage: Storage): DraftRecoveryPort {
+  const key = (documentId: DocumentId) => `speech-edit:draft:${documentId}`;
+  return {
+    read: (documentId) => {
+      const value = storage.getItem(key(documentId));
+      if (!value) return undefined;
+      try {
+        const parsed: unknown = JSON.parse(value);
+        return typeof parsed === "object" && parsed !== null && (parsed as { type?: unknown }).type === "doc"
+          ? parsed as TiptapDocumentContent
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    write: (documentId, content) => storage.setItem(key(documentId), JSON.stringify(content)),
+    clear: (documentId) => storage.removeItem(key(documentId)),
+  };
+}
+
+export function createDocumentRuntime(
+  gateway: DocumentGateway,
+  documentId: DocumentId,
+  recovery: DraftRecoveryPort = noDraftRecovery,
+): DocumentRuntime {
   const store: DocumentStore = createStore<DocumentModel>()(
     devtools(subscribeWithSelector(initialDocumentModel), { name: "Speech to Edit" }),
   );
   const state: DocumentRuntimeState = {
     store,
     gateway,
+    recovery,
     documentId,
     editorPort: undefined,
-    pendingHtml: undefined,
+    pendingContent: undefined,
     debounceTimer: undefined,
     activeController: undefined,
     saving: false,
@@ -155,7 +224,12 @@ export function createDocumentRuntime(gateway: DocumentGateway, documentId: Docu
     state,
     store,
     load: () => loadDocument(state),
-    queueSave: (html) => queueDocumentSave(state, html),
+    queueSave: (content) => queueDocumentSave(state, content),
+    retrySave: () => { void flushDocumentSave(state); },
+    propose: async (transcript, context) => {
+      const controller = new AbortController();
+      return state.gateway.propose({ transcript, context }, controller.signal);
+    },
     registerEditorPort: (port) => {
       state.editorPort = port;
       return () => { if (state.editorPort === port) state.editorPort = undefined; };
@@ -185,9 +259,13 @@ export class DocumentRpcClient extends Context.Tag("DocumentRpcClient")<
     SaveDocument: (payload: {
       documentId: DocumentId;
       title: string;
-      html: string;
+      content: TiptapDocumentContent;
       expectedRevision: number;
     }) => Effect.Effect<SaveDocumentResult, unknown>;
+    ProposeEditorCommand: (payload: {
+      transcript: string;
+      context: CapturedEditorContext;
+    }) => Effect.Effect<EditorProposalOutcome, unknown>;
   }>
 >() {}
 
@@ -214,6 +292,10 @@ export function createEffectRpcGateway(url = "/rpc"): DocumentGateway {
     ),
     save: (input, signal) => execute(
       Effect.flatMap(DocumentRpcClient, (client) => client.SaveDocument(input)),
+      signal,
+    ),
+    propose: (input, signal) => execute(
+      Effect.flatMap(DocumentRpcClient, (client) => client.ProposeEditorCommand(input)),
       signal,
     ),
     dispose: runtime.dispose,

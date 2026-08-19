@@ -63,7 +63,7 @@ export async function createServerRuntime(options: CreateServerRuntimeOptions): 
   };
   return {
     state,
-    start: () => startServerRuntime(state, program),
+    start: () => startServerRuntime(state, program, httpServer),
     dispose: () => disposeServerRuntime(state, httpServer),
   };
 }
@@ -71,11 +71,23 @@ export async function createServerRuntime(options: CreateServerRuntimeOptions): 
 async function startServerRuntime(
   state: ServerRuntimeState,
   program: Effect.Effect<void, unknown>,
+  server: HttpServerInstance,
 ): Promise<void> {
   if (state.started || state.disposed) return;
   state.fiber = Effect.runFork(program);
+  if (!server.listening) {
+    await new Promise<void>((resolve, reject) => {
+      const ready = () => { cleanup(); resolve(); };
+      const failed = (cause: Error) => { cleanup(); reject(cause); };
+      const cleanup = () => {
+        server.off("listening", ready);
+        server.off("error", failed);
+      };
+      server.once("listening", ready);
+      server.once("error", failed);
+    });
+  }
   state.started = true;
-  await new Promise((resolve) => setTimeout(resolve, 20));
 }
 
 function disposeServerRuntime(

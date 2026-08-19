@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@tiptap/core": "catalog:",
+    "@tiptap/pm": "catalog:",
     "@tiptap/starter-kit": "catalog:"
   }
 }

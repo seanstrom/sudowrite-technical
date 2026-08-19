@@ -79,6 +79,9 @@ export function updateDocument(model: DocumentModel, action: DocumentAction): Do
     case DocumentActionType.ConflictedDocument:
       return {
         ...model,
+        document: model.document
+          ? { ...action.document, content: model.document.content }
+          : action.document,
         phase: DocumentPhase.Conflicted,
         message: "This draft changed in another session. Reload before applying more edits.",
       };

@@ -2,8 +2,10 @@ import {
   createEditorApplicationPort,
   EditorCommandType,
   runEditorCommand,
+  validateTiptapDocumentContent,
 } from "@app/editor";
-import type { Editor } from "@tiptap/core";
+import type { TiptapDocumentContent } from "@app/contracts";
+import type { Editor, JSONContent } from "@tiptap/core";
 import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect } from "react";
@@ -12,7 +14,7 @@ import type { DocumentRuntime } from "./runtime";
 
 export type DocumentEditorProps = Readonly<{
   documentId: string;
-  initialHtml: string;
+  initialContent: TiptapDocumentContent;
   runtime: DocumentRuntime;
 }>;
 
@@ -51,17 +53,17 @@ function Toolbar({ editor }: Readonly<{ editor: Editor }>) {
   );
 }
 
-export function DocumentEditor({ documentId, initialHtml, runtime }: DocumentEditorProps) {
+export function DocumentEditor({ documentId, initialContent, runtime }: DocumentEditorProps) {
   const editor = useEditor({
     extensions: [StarterKit],
-    content: initialHtml,
+    content: validateTiptapDocumentContent(initialContent) as JSONContent,
     editorProps: {
       attributes: {
         "aria-label": "Document editor",
         class: "editor-surface",
       },
     },
-    onUpdate: ({ editor: current }) => runtime.queueSave(current.getHTML()),
+    onUpdate: ({ editor: current }) => runtime.queueSave(current.getJSON() as TiptapDocumentContent),
   });
 
   useEffect(() => {

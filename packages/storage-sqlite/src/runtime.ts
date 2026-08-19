@@ -40,7 +40,13 @@ export type CreateSqliteStorageOptions = Readonly<{
 }>;
 
 const DefaultMigrationsFolder = resolve(process.cwd(), "packages/storage-sqlite/drizzle");
-const DefaultHtml = "<h1>Your draft</h1><p>Start writing, then use your voice to revise it.</p>";
+const DefaultContent = {
+  type: "doc",
+  content: [
+    { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Your draft" }] },
+    { type: "paragraph", content: [{ type: "text", text: "Start writing, then use your voice to revise it." }] },
+  ],
+} as const;
 
 export function createSqliteStorage(options: CreateSqliteStorageOptions): SqliteStorageRuntime {
   if (options.databasePath !== ":memory:") {
@@ -98,7 +104,7 @@ function makeDocumentRepository(state: SqliteStorageState): DocumentRepositoryPo
           const created: DocumentRecord = {
             id: documentId,
             title: "Voice draft",
-            html: DefaultHtml,
+            content: DefaultContent,
             revision: 0,
             updatedAt: now,
           };
@@ -125,11 +131,11 @@ function makeDocumentRepository(state: SqliteStorageState): DocumentRepositoryPo
           const now = new Date();
           const result = state.client.prepare(
             `UPDATE documents
-             SET title = ?, html = ?, revision = ?, updated_at = ?
+             SET title = ?, content = ?, revision = ?, updated_at = ?
              WHERE id = ? AND revision = ?`,
           ).run(
             input.title,
-            input.html,
+            JSON.stringify(input.content),
             input.expectedRevision + 1,
             now.getTime(),
             input.documentId,
@@ -144,7 +150,7 @@ function makeDocumentRepository(state: SqliteStorageState): DocumentRepositoryPo
           return SaveDocumentOutcome.Saved({
             id: input.documentId,
             title: input.title,
-            html: input.html,
+            content: input.content,
             revision: input.expectedRevision + 1,
             updatedAt: now,
           });

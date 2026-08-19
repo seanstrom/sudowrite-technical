@@ -11,7 +11,7 @@ import {
 const document = {
   id: DocumentId.make("draft"),
   title: "Draft",
-  html: "<p>Hello</p>",
+  content: { type: "doc", content: [{ type: "paragraph" }] } as const,
   revision: 1,
   updatedAt: "2026-08-19T00:00:00.000Z",
 };

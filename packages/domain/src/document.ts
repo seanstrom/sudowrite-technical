@@ -20,7 +20,7 @@ export class DocumentRepositoryFailure extends Data.TaggedError(
 export type DocumentRecord = Readonly<{
   id: string;
   title: string;
-  html: string;
+  content: Readonly<{ type: "doc"; content?: ReadonlyArray<unknown> | undefined }>;
   revision: number;
   updatedAt: Date;
 }>;
@@ -51,7 +51,7 @@ export type DocumentRepositoryPort = Readonly<{
   save: (input: Readonly<{
     documentId: string;
     title: string;
-    html: string;
+    content: Readonly<{ type: "doc"; content?: ReadonlyArray<unknown> | undefined }>;
     expectedRevision: number;
   }>) => Effect.Effect<SaveDocumentOutcome, DocumentRepositoryFailure>;
 }>;

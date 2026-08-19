@@ -4,10 +4,16 @@ import { Schema } from "effect";
 export const DocumentId = Schema.String.pipe(Schema.brand("DocumentId"));
 export type DocumentId = typeof DocumentId.Type;
 
+export const TiptapDocumentContent = Schema.Struct({
+  type: Schema.Literal("doc"),
+  content: Schema.optional(Schema.Array(Schema.Unknown)),
+});
+export type TiptapDocumentContent = typeof TiptapDocumentContent.Type;
+
 export const DocumentSnapshot = Schema.Struct({
   id: DocumentId,
   title: Schema.String,
-  html: Schema.String,
+  content: TiptapDocumentContent,
   revision: Schema.Number,
   updatedAt: Schema.String,
 });
@@ -60,12 +66,88 @@ export const SaveDocument = Rpc.make("SaveDocument", {
   payload: {
     documentId: DocumentId,
     title: Schema.String,
-    html: Schema.String,
+    content: TiptapDocumentContent,
     expectedRevision: Schema.Number,
   },
   success: SaveDocumentResultSchema,
   error: DocumentUnavailable,
 });
 
-export const DocumentRpcs = RpcGroup.make(GetDocument, SaveDocument);
+export const EditorMark = Schema.Literal("bold", "italic");
+export const EditorTarget = Schema.Struct({
+  targetId: Schema.String,
+  from: Schema.Number,
+  to: Schema.Number,
+  selectedText: Schema.String,
+  documentFingerprint: Schema.String,
+});
+export const CapturedEditorContext = Schema.Struct({
+  documentId: DocumentId,
+  target: EditorTarget,
+  documentText: Schema.String,
+});
+export type CapturedEditorContext = typeof CapturedEditorContext.Type;
+
+export const ProposedEditorCommandType = {
+  ReplaceSelection: "ReplaceSelection",
+  ReplaceAll: "ReplaceAll",
+  InsertText: "InsertText",
+  SetMark: "SetMark",
+} as const;
+
+export const ReplaceSelectionCommand = Schema.TaggedStruct(
+  ProposedEditorCommandType.ReplaceSelection,
+  { text: Schema.String },
+);
+export const ReplaceAllCommand = Schema.TaggedStruct(
+  ProposedEditorCommandType.ReplaceAll,
+  { search: Schema.String, replacement: Schema.String },
+);
+export const InsertTextCommand = Schema.TaggedStruct(
+  ProposedEditorCommandType.InsertText,
+  { text: Schema.String, at: Schema.Literal("Before", "After") },
+);
+export const SetMarkCommand = Schema.TaggedStruct(
+  ProposedEditorCommandType.SetMark,
+  { mark: EditorMark, enabled: Schema.Boolean },
+);
+export const ProposedEditorCommand = Schema.Union(
+  ReplaceSelectionCommand,
+  ReplaceAllCommand,
+  InsertTextCommand,
+  SetMarkCommand,
+);
+export type ProposedEditorCommand = typeof ProposedEditorCommand.Type;
+
+export const EditorProposalOutcomeType = {
+  Proposed: "ProposedEditorCommand",
+  Unsupported: "UnsupportedEditorCommand",
+} as const;
+export const ProposedEditorCommandResult = Schema.TaggedStruct(
+  EditorProposalOutcomeType.Proposed,
+  {
+    proposalId: Schema.String,
+    transcript: Schema.String,
+    summary: Schema.String,
+    context: CapturedEditorContext,
+    command: ProposedEditorCommand,
+  },
+);
+export const UnsupportedEditorCommandResult = Schema.TaggedStruct(
+  EditorProposalOutcomeType.Unsupported,
+  { transcript: Schema.String, reason: Schema.String },
+);
+export const EditorProposalOutcome = Schema.Union(
+  ProposedEditorCommandResult,
+  UnsupportedEditorCommandResult,
+);
+export type EditorProposalOutcome = typeof EditorProposalOutcome.Type;
+
+export const ProposeEditorCommand = Rpc.make("ProposeEditorCommand", {
+  payload: { transcript: Schema.String, context: CapturedEditorContext },
+  success: EditorProposalOutcome,
+  error: DocumentUnavailable,
+});
+
+export const DocumentRpcs = RpcGroup.make(GetDocument, SaveDocument, ProposeEditorCommand);
 export const DefaultDocumentId = DocumentId.make("draft");

@@ -30,6 +30,9 @@ catalogs:
     '@tiptap/core':
       specifier: 3.30.1
       version: 3.30.1
+    '@tiptap/pm':
+      specifier: 3.30.1
+      version: 3.30.1
     '@tiptap/react':
       specifier: 3.30.1
       version: 3.30.1
@@ -140,6 +143,9 @@ importers:
       '@app/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@app/editor':
+        specifier: workspace:*
+        version: link:../../packages/editor
       '@app/storage-sqlite':
         specifier: workspace:*
         version: link:../../packages/storage-sqlite
@@ -218,9 +224,18 @@ importers:
       '@tiptap/core':
         specifier: 'catalog:'
         version: 3.30.1(@tiptap/pm@3.30.1)
+      '@tiptap/pm':
+        specifier: 'catalog:'
+        version: 3.30.1
       '@tiptap/starter-kit':
         specifier: 'catalog:'
         version: 3.30.1
+
+  packages/speech-command:
+    dependencies:
+      effect:
+        specifier: 'catalog:'
+        version: 3.22.1
 
   packages/storage-sqlite:
     dependencies:
