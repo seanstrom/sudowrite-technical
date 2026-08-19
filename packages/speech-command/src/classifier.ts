@@ -193,9 +193,10 @@ export function normalizeSpeechCommandClassifierEnvelope(
         invalidEnvelope("SetSelectionMark fields are invalid."),
       );
 
-    case SpeechCommandIntentType.RewriteSelection:
+    case SpeechCommandIntentType.Rewrite:
       if (
-        envelope.scope === SpeechTextScope.Selection &&
+        (envelope.scope === SpeechTextScope.Selection ||
+          envelope.scope === SpeechTextScope.Document) &&
         hasText(envelope.rewriteInstruction) &&
         allNull([
           envelope.occurrence,
@@ -208,14 +209,15 @@ export function normalizeSpeechCommandClassifierEnvelope(
       ) {
         return Effect.succeed(
           SpeechCommandDecision.Classified(
-            SpeechCommandIntent.RewriteSelection(
+            SpeechCommandIntent.Rewrite(
+              envelope.scope,
               envelope.rewriteInstruction.trim(),
             ),
           ),
         );
       }
       return Effect.fail(
-        invalidEnvelope("RewriteSelection fields are invalid."),
+        invalidEnvelope("Rewrite fields are invalid."),
       );
 
     case null:

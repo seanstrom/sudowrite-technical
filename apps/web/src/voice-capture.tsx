@@ -213,12 +213,25 @@ export function VoiceCaptureControls({
       });
       return;
     }
-    const captured = editor.capture();
+    const captureId = crypto.randomUUID();
+    const document = runtime.store.getState().document;
+    if (document === undefined) {
+      setProjection({
+        phase: VoiceControlPhase.Failed,
+        elapsedSeconds: 0,
+        status: "Document unavailable",
+        error: "Wait for the document before recording.",
+      });
+      return;
+    }
+    const captured = editor.capture({
+      captureId,
+      documentRevision: document.revision,
+    });
     const context: CapturedEditorContext = {
       ...captured,
       documentId: DocumentId.make(captured.documentId),
     };
-    const captureId = crypto.randomUUID();
     mutState.retainedContext = context;
     mutState.startedAtMs = performance.now();
     mutState.capture.start({

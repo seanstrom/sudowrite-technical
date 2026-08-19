@@ -45,6 +45,10 @@ test("reviews and explicitly applies one server-proposed editor command", async 
 });
 
 test("records through the browser microphone and leaves the transcript reviewable", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
   await page.goto("/");
   const editor = page.locator('[contenteditable="true"][aria-label="Document editor"]');
   await expect(editor).toBeVisible({ timeout: 10_000 });
@@ -68,9 +72,40 @@ test("records through the browser microphone and leaves the transcript reviewabl
   await expect(page.getByRole("region", { name: "Proposed edit" })).toBeVisible();
   await expect(editor).toHaveText(before ?? "");
 
-  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(editor).toContainText("clearer prose");
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(editor).toHaveText(before ?? "");
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 10_000 });
+
   await page.getByRole("button", { name: "Record" }).click();
   await expect(page.getByText(/Recording…/)).toBeVisible();
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByText("Ready to record")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("previews and applies a whole-document Markdown rewrite as one undoable transaction", async ({ page }) => {
+  await page.goto("/");
+  const editor = page.locator('[contenteditable="true"][aria-label="Document editor"]');
+  await expect(editor).toBeVisible({ timeout: 10_000 });
+  await editor.click();
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.type("Original document prose.");
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 10_000 });
+
+  await page.getByLabel("Editing instruction").fill("Rewrite the whole document more clearly");
+  await page.getByRole("button", { name: "Review command" }).click();
+  const review = page.getByRole("region", { name: "Proposed edit" });
+  await expect(review).toContainText("Replace the entire document");
+  await expect(review).toContainText("Original document prose");
+  await expect(editor).toContainText("Original document prose");
+
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(editor).toContainText("Revised draft");
+  await page.getByRole("button", { name: "Undo" }).click();
+  await expect(editor).toContainText("Original document prose");
+  await expect(page.getByText("Saved", { exact: true })).toBeVisible({ timeout: 10_000 });
+  await page.reload();
+  await expect(page.locator('[contenteditable="true"][aria-label="Document editor"]')).toContainText("Original document prose");
 });

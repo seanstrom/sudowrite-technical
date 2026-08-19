@@ -3,12 +3,19 @@ import {
   DocumentRpcs,
   DocumentUnavailable,
   EditorProposalOutcomeType,
-  ProposedEditorCommandType,
   SaveDocumentResult,
   type CapturedEditorContext,
   type ProposedEditorCommand,
 } from "@app/contracts";
 import { validateTiptapDocumentContent } from "@app/editor";
+import {
+  SpeechEditCommandType,
+  SpeechInterpretationFailureType,
+  SpeechInterpretationOutcomeType,
+  type CapturedSpeechEditorContext,
+  type SpeechEditCommand,
+  type SpeechInterpretationOutcome,
+} from "@app/speech-command";
 import {
   DocumentRepository,
   SaveDocumentOutcomeType,
@@ -22,10 +29,15 @@ import {
   type VoiceTranscriptionPort,
 } from "@app/voice-capture/server";
 import { Context, Effect } from "effect";
+import type { SpeechInterpretationService as SpeechInterpretationServicePort } from "./speech-interpretation";
 
 export class VoiceTranscriptionService extends Context.Tag(
   "VoiceTranscriptionService",
 )<VoiceTranscriptionService, VoiceTranscriptionPort>() {}
+
+export class SpeechInterpretationService extends Context.Tag(
+  "SpeechInterpretationService",
+)<SpeechInterpretationService, SpeechInterpretationServicePort>() {}
 
 const toSnapshot = (document: DocumentRecord) => ({
   id: DocumentId.make(document.id),
@@ -47,50 +59,96 @@ const validateContent = <Content>(content: Content): Effect.Effect<Content, Docu
     catch: () => mapUnavailable("The document content does not match the configured editor schema."),
   });
 
-const proposed = (
-  transcript: string,
-  context: CapturedEditorContext,
-  summary: string,
-  command: ProposedEditorCommand,
-) => ({
-  _tag: EditorProposalOutcomeType.Proposed,
-  proposalId: crypto.randomUUID(),
-  transcript,
-  summary,
-  context,
-  command,
-});
+function toWireCommand(command: SpeechEditCommand): ProposedEditorCommand {
+  switch (command.type) {
+    case SpeechEditCommandType.ReplaceText:
+      return {
+        _tag: "ReplaceText",
+        scope: command.scope,
+        occurrence: command.occurrence,
+        matchText: command.matchText,
+        replacementText: command.replacementText,
+      };
+    case SpeechEditCommandType.InsertText:
+      return { _tag: "InsertText", text: command.text, target: command.target };
+    case SpeechEditCommandType.SetMark:
+      return { _tag: "SetMark", mark: command.mark, enabled: command.enabled };
+    case SpeechEditCommandType.ReplaceSelection:
+      return { _tag: "ReplaceSelection", text: command.replacementText };
+    case SpeechEditCommandType.ReplaceDocument:
+      return {
+        _tag: "ReplaceDocument",
+        content: validateTiptapDocumentContent(command.replacementContent) as Extract<
+          ProposedEditorCommand,
+          { _tag: "ReplaceDocument" }
+        >["content"],
+        preview: command.preview,
+      };
+    default:
+      command satisfies never;
+      return { _tag: "ReplaceSelection", text: "" };
+  }
+}
 
-export function proposeEditorCommand(transcript: string, context: CapturedEditorContext) {
-  const instruction = transcript.trim();
-  const replaceSelection = instruction.match(/^replace (?:the )?selection with ["“]?(.+?)["”]?$/i);
-  if (replaceSelection) return proposed(instruction, context, "Replace the selected text", {
-    _tag: ProposedEditorCommandType.ReplaceSelection,
-    text: replaceSelection[1]!,
-  });
-  const replaceAll = instruction.match(/^replace all ["“]?(.+?)["”]? with ["“]?(.+?)["”]?$/i);
-  if (replaceAll) return proposed(instruction, context, `Replace every “${replaceAll[1]}”`, {
-    _tag: ProposedEditorCommandType.ReplaceAll,
-    search: replaceAll[1]!,
-    replacement: replaceAll[2]!,
-  });
-  const insert = instruction.match(/^insert ["“]?(.+?)["”]? (before|after)(?: the selection)?$/i);
-  if (insert) return proposed(instruction, context, `Insert text ${insert[2]!.toLowerCase()} the selection`, {
-    _tag: ProposedEditorCommandType.InsertText,
-    text: insert[1]!,
-    at: insert[2]!.toLowerCase() === "before" ? "Before" : "After",
-  });
-  const mark = instruction.match(/^(add|apply|remove|clear|make) (bold|italic)(?: formatting)?$/i);
-  if (mark) return proposed(instruction, context, `${mark[1]} ${mark[2]} formatting`, {
-    _tag: ProposedEditorCommandType.SetMark,
-    mark: mark[2]!.toLowerCase() === "bold" ? "bold" : "italic",
-    enabled: !/^(remove|clear)$/i.test(mark[1]!),
-  });
+export function toCapturedSpeechContext(context: CapturedEditorContext): CapturedSpeechEditorContext {
   return {
-    _tag: EditorProposalOutcomeType.Unsupported,
-    transcript: instruction,
-    reason: "Try replacing the selection, replacing matching text, inserting text, or changing bold/italic formatting.",
-  } as const;
+    identity: {
+      captureId: context.captureId,
+      documentId: context.documentId,
+      documentRevision: String(context.documentRevision),
+      documentFingerprint: context.target.documentFingerprint,
+    },
+    documentContent: context.documentContent,
+    documentText: context.documentText,
+    selection: context.target.from === context.target.to
+      ? null
+      : {
+          from: context.target.from,
+          to: context.target.to,
+          text: context.target.selectedText,
+        },
+  };
+}
+
+export function toWireOutcome(
+  outcome: SpeechInterpretationOutcome,
+  context: CapturedEditorContext,
+) {
+  switch (outcome.type) {
+    case SpeechInterpretationOutcomeType.Proposed:
+      return {
+        _tag: EditorProposalOutcomeType.Proposed,
+        proposalId: outcome.proposal.proposalId,
+        transcript: outcome.proposal.transcript,
+        summary: outcome.proposal.summary,
+        context,
+        command: toWireCommand(outcome.proposal.command),
+      } as const;
+    case SpeechInterpretationOutcomeType.Ambiguous:
+      return {
+        _tag: EditorProposalOutcomeType.Ambiguous,
+        transcript: outcome.transcript,
+        reason: outcome.reason,
+        clarification: outcome.clarification,
+      } as const;
+    case SpeechInterpretationOutcomeType.Unsupported:
+      return {
+        _tag: EditorProposalOutcomeType.Unsupported,
+        transcript: outcome.transcript,
+        reason: outcome.reason,
+      } as const;
+    case SpeechInterpretationOutcomeType.Cancelled:
+      return { _tag: EditorProposalOutcomeType.Cancelled, reason: outcome.reason } as const;
+    case SpeechInterpretationOutcomeType.Failed: {
+      const reason = outcome.failure.type === SpeechInterpretationFailureType.InvalidTranscript
+        ? outcome.failure.message
+        : "The command could not be interpreted safely.";
+      return { _tag: EditorProposalOutcomeType.Failed, reason } as const;
+    }
+    default:
+      outcome satisfies never;
+      return { _tag: EditorProposalOutcomeType.Failed, reason: "Unknown interpretation outcome." } as const;
+  }
 }
 
 export const DocumentRpcHandlersLive = DocumentRpcs.toLayer(
@@ -134,7 +192,15 @@ export const DocumentRpcHandlersLive = DocumentRpcs.toLayer(
         }
       }),
     ProposeEditorCommand: ({ transcript, context }) =>
-      Effect.succeed(proposeEditorCommand(transcript, context)),
+      Effect.gen(function* () {
+        const interpretation = yield* SpeechInterpretationService;
+        const outcome = yield* interpretation.interpret({
+          requestId: crypto.randomUUID(),
+          transcript,
+          context: toCapturedSpeechContext(context),
+        });
+        return toWireOutcome(outcome, context);
+      }),
     TranscribeVoice: ({ request }) =>
       Effect.gen(function* () {
         const transcription = yield* VoiceTranscriptionService;

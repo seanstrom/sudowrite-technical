@@ -9,6 +9,7 @@
   "dependencies": {
     "@tiptap/core": "catalog:",
     "@tiptap/html": "catalog:",
+    "@tiptap/markdown": "catalog:",
     "@tiptap/pm": "catalog:",
     "@tiptap/starter-kit": "catalog:"
   }

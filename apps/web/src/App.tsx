@@ -11,6 +11,7 @@ import {
   EditorPreviewResultType,
   EditorValidationResultType,
   type EditorEdit as EditorEditValue,
+  validateTiptapDocumentContent,
 } from "@app/editor";
 import { useCallback, useEffect, useState } from "react";
 import { useStore } from "zustand";
@@ -67,7 +68,10 @@ export function App({ runtime }: Readonly<{ runtime: DocumentRuntime }>) {
     setReviewing(true);
     setProposalMessage(undefined);
     try {
-      const captured = retainedVoiceContext ?? port.capture();
+      const captured = retainedVoiceContext ?? port.capture({
+        captureId: crypto.randomUUID(),
+        documentRevision: model.document.revision,
+      });
       setProposal(await runtime.propose(instruction, {
         ...captured,
         documentId: DocumentId.make(captured.documentId),
@@ -82,6 +86,15 @@ export function App({ runtime }: Readonly<{ runtime: DocumentRuntime }>) {
   const applyProposal = () => {
     const port = runtime.getEditorPort();
     if (!port || !proposedEdit || proposal?._tag !== EditorProposalOutcomeType.Proposed) return;
+    if (
+      !model.document ||
+      proposal.context.documentId !== model.document.id ||
+      (retainedVoiceContext !== undefined &&
+        proposal.context.captureId !== retainedVoiceContext.captureId)
+    ) {
+      setProposalMessage("The document or retained capture changed after review. Review the command again.");
+      return;
+    }
     const validation = port.validate(proposedEdit);
     if (validation.type !== EditorValidationResultType.Valid) {
       setProposalMessage(validation.reason);
@@ -143,6 +156,15 @@ export function App({ runtime }: Readonly<{ runtime: DocumentRuntime }>) {
             {proposal?._tag === EditorProposalOutcomeType.Unsupported ? (
               <div className="notice" role="status">{proposal.reason}</div>
             ) : null}
+            {proposal?._tag === EditorProposalOutcomeType.Ambiguous ? (
+              <div className="notice" role="status">{proposal.reason} {proposal.clarification}</div>
+            ) : null}
+            {proposal?._tag === EditorProposalOutcomeType.Failed ? (
+              <div className="notice" role="alert">{proposal.reason}</div>
+            ) : null}
+            {proposal?._tag === EditorProposalOutcomeType.Cancelled ? (
+              <div className="notice" role="status">{proposal.reason}</div>
+            ) : null}
             {proposal?._tag === EditorProposalOutcomeType.Proposed ? (
               <section className="proposal-review" aria-label="Proposed edit">
                 <h3>{proposal.summary}</h3>
@@ -175,16 +197,36 @@ function toEditorEdit(
   switch (proposal.command._tag) {
     case ProposedEditorCommandType.ReplaceSelection:
       return EditorEdit.ReplaceRange(target, proposal.command.text);
-    case ProposedEditorCommandType.ReplaceAll:
-      return EditorEdit.ReplaceAll(
-        proposal.command.search,
-        proposal.command.replacement,
-        target.documentFingerprint,
+    case ProposedEditorCommandType.ReplaceText:
+      return EditorEdit.ReplaceText(
+        target,
+        proposal.command.scope,
+        proposal.command.occurrence,
+        proposal.command.matchText,
+        proposal.command.replacementText,
       );
     case ProposedEditorCommandType.InsertText:
-      return EditorEdit.InsertText(target, proposal.command.text, proposal.command.at);
+      return EditorEdit.InsertText(
+        target,
+        proposal.command.text,
+        proposal.command.target === "BeforeSelection"
+          ? "Before"
+          : proposal.command.target === "AfterSelection"
+            ? "After"
+            : "DocumentEnd",
+      );
     case ProposedEditorCommandType.SetMark:
-      return EditorEdit.SetMark(target, proposal.command.mark, proposal.command.enabled);
+      return EditorEdit.SetMark(
+        target,
+        proposal.command.mark === "Bold" ? "bold" : "italic",
+        proposal.command.enabled,
+      );
+    case ProposedEditorCommandType.ReplaceDocument:
+      return EditorEdit.ReplaceDocument(
+        target.documentFingerprint,
+        validateTiptapDocumentContent(proposal.command.content),
+        proposal.command.preview,
+      );
     default:
       proposal.command satisfies never;
       return EditorEdit.ReplaceRange(target, target.selectedText);

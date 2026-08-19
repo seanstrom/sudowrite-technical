@@ -8,11 +8,14 @@ import { HttpServer } from "@effect/platform";
 import { NodeHttpServer } from "@effect/platform-node";
 import { RpcSerialization, RpcServer } from "@effect/rpc";
 import { Effect, Fiber, Layer } from "effect";
+import { SpeechInterpretationOutcome } from "@app/speech-command";
 
 import {
   DocumentRpcHandlersLive,
+  SpeechInterpretationService,
   VoiceTranscriptionService,
 } from "./application";
+import type { SpeechInterpretationService as SpeechInterpretationServicePort } from "./speech-interpretation";
 
 export type ServerRuntimeState = {
   storage: SqliteStorageRuntime;
@@ -34,6 +37,8 @@ export type CreateServerRuntimeOptions = Readonly<{
   host?: string;
   port: number;
   transcriptionPort?: VoiceTranscriptionPort;
+  interpretationService?: SpeechInterpretationServicePort;
+  disposeInterpretation?: () => void;
 }>;
 
 const UnconfiguredTranscriptionPort: VoiceTranscriptionPort = {
@@ -44,6 +49,15 @@ const UnconfiguredTranscriptionPort: VoiceTranscriptionPort = {
         request.request.editorContext.captureId,
       ),
     ),
+};
+
+const UnconfiguredInterpretationService: SpeechInterpretationServicePort = {
+  interpret: (input) => Effect.succeed(
+    SpeechInterpretationOutcome.Unsupported(
+      input.transcript,
+      "Speech interpretation is not configured.",
+    ),
+  ),
 };
 
 export async function createServerRuntime(options: CreateServerRuntimeOptions): Promise<ServerRuntime> {
@@ -62,8 +76,12 @@ export async function createServerRuntime(options: CreateServerRuntimeOptions): 
     VoiceTranscriptionService,
     options.transcriptionPort ?? UnconfiguredTranscriptionPort,
   );
+  const InterpretationLive = Layer.succeed(
+    SpeechInterpretationService,
+    options.interpretationService ?? UnconfiguredInterpretationService,
+  );
   const HandlersLive = DocumentRpcHandlersLive.pipe(
-    Layer.provide(Layer.merge(RepositoryLive, TranscriptionLive)),
+    Layer.provide(Layer.mergeAll(RepositoryLive, TranscriptionLive, InterpretationLive)),
   );
   const RpcLive = Layer.merge(HandlersLive, RpcSerialization.layerNdjson);
   const host = options.host ?? "127.0.0.1";
@@ -86,7 +104,7 @@ export async function createServerRuntime(options: CreateServerRuntimeOptions): 
   return {
     state,
     start: () => startServerRuntime(state, program, httpServer),
-    dispose: () => disposeServerRuntime(state, httpServer),
+    dispose: () => disposeServerRuntime(state, httpServer, options.disposeInterpretation),
   };
 }
 
@@ -115,14 +133,16 @@ async function startServerRuntime(
 function disposeServerRuntime(
   state: ServerRuntimeState,
   server: HttpServerInstance,
+  disposeInterpretation: (() => void) | undefined,
 ): Promise<void> {
-  state.disposal ??= disposeServerResources(state, server);
+  state.disposal ??= disposeServerResources(state, server, disposeInterpretation);
   return state.disposal;
 }
 
 async function disposeServerResources(
   state: ServerRuntimeState,
   server: HttpServerInstance,
+  disposeInterpretation: (() => void) | undefined,
 ): Promise<void> {
   if (state.disposed) return;
   state.disposed = true;
@@ -130,6 +150,7 @@ async function disposeServerResources(
     if (state.fiber) await Effect.runPromise(Fiber.interrupt(state.fiber));
     if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));
   } finally {
+    disposeInterpretation?.();
     state.storage.close();
   }
 }

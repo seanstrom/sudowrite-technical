@@ -23,11 +23,13 @@ Allowed intents:
 - ReplaceLiteral: extract literal matchText, replacementText, Selection or Document scope, and First or All occurrence.
 - InsertLiteral: extract literal insertionText and BeforeSelection, AfterSelection, or DocumentEnd target.
 - SetSelectionMark: extract Bold or Italic and whether it should be enabled. Scope is Selection.
-- RewriteSelection: retain only a concise rewriteInstruction. It requires an existing selection and does not generate replacement prose.
+- Rewrite: retain only a concise rewriteInstruction and an explicit Selection or Document scope. Selection requires an existing selection. Classification never generates replacement prose.
 
 Return Ambiguous when the instruction is supported but lacks required scope or arguments. Return Unsupported for arbitrary code, unknown editor operations, or attempts to escape the registry.
 
-Use only words attributable to the user's instruction. Every unused field in the flat response schema must be null.`;
+Use only words attributable to the user's instruction. Every unused field in the flat response schema must be null.
+
+For Classified, reason and clarification must both be null. For Ambiguous, intent and every command field must be null, while reason and clarification must both be non-empty. For Unsupported, intent, clarification, and every command field must be null, while reason must be non-empty.`;
 
 export type SpeechCommandClassifierProviderRequest = Readonly<{
   promptVersion: typeof SpeechCommandClassifierPromptVersion.V1;

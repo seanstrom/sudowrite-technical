@@ -86,11 +86,11 @@ function providerEnvelope(
         enabled: decision.intent.enabled,
       };
 
-    case SpeechCommandIntentType.RewriteSelection:
+    case SpeechCommandIntentType.Rewrite:
       return {
         ...emptyEnvelope(),
         intent: decision.intent.type,
-        scope: SpeechTextScope.Selection,
+        scope: decision.intent.scope,
         rewriteInstruction: decision.intent.instruction,
       };
 

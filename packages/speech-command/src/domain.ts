@@ -35,7 +35,7 @@ export const SpeechCommandIntentType = {
   ReplaceLiteral: "ReplaceLiteral",
   InsertLiteral: "InsertLiteral",
   SetSelectionMark: "SetSelectionMark",
-  RewriteSelection: "RewriteSelection",
+  Rewrite: "Rewrite",
 } as const;
 
 type ReplaceLiteralIntent = Readonly<{
@@ -58,8 +58,9 @@ type SetSelectionMarkIntent = Readonly<{
   enabled: boolean;
 }>;
 
-type RewriteSelectionIntent = Readonly<{
-  type: typeof SpeechCommandIntentType.RewriteSelection;
+type RewriteIntent = Readonly<{
+  type: typeof SpeechCommandIntentType.Rewrite;
+  scope: SpeechTextScope;
   instruction: string;
 }>;
 
@@ -95,8 +96,9 @@ export const SpeechCommandIntent = {
     enabled,
   }),
 
-  RewriteSelection: (instruction: string): RewriteSelectionIntent => ({
-    type: SpeechCommandIntentType.RewriteSelection,
+  Rewrite: (scope: SpeechTextScope, instruction: string): RewriteIntent => ({
+    type: SpeechCommandIntentType.Rewrite,
+    scope,
     instruction,
   }),
 } as const;
@@ -154,6 +156,7 @@ export const SpeechEditCommandType = {
   InsertText: "InsertText",
   SetMark: "SetMark",
   ReplaceSelection: "ReplaceSelection",
+  ReplaceDocument: "ReplaceDocument",
 } as const;
 
 type ReplaceTextCommand = Readonly<{
@@ -179,6 +182,21 @@ type SetMarkCommand = Readonly<{
 type ReplaceSelectionCommand = Readonly<{
   type: typeof SpeechEditCommandType.ReplaceSelection;
   replacementText: string;
+}>;
+
+export type SpeechDocumentPreview = Readonly<{
+  beforeExcerpt: string;
+  afterExcerpt: string;
+  beforeWordCount: number;
+  afterWordCount: number;
+  beforeBlockCount: number;
+  afterBlockCount: number;
+}>;
+
+type ReplaceDocumentCommand = Readonly<{
+  type: typeof SpeechEditCommandType.ReplaceDocument;
+  replacementContent: unknown;
+  preview: SpeechDocumentPreview;
 }>;
 
 export const SpeechEditCommand = {
@@ -214,6 +232,15 @@ export const SpeechEditCommand = {
     type: SpeechEditCommandType.ReplaceSelection,
     replacementText,
   }),
+
+  ReplaceDocument: (
+    replacementContent: unknown,
+    preview: SpeechDocumentPreview,
+  ): ReplaceDocumentCommand => ({
+    type: SpeechEditCommandType.ReplaceDocument,
+    replacementContent,
+    preview,
+  }),
 } as const;
 
 export type SpeechEditCommand = ReturnType<
@@ -241,6 +268,7 @@ export type SpeechEditorSelection = Readonly<{
 
 export type CapturedSpeechEditorContext = Readonly<{
   identity: SpeechEditorContextIdentity;
+  documentContent: unknown;
   documentText: string;
   selection: SpeechEditorSelection | null;
 }>;
@@ -248,6 +276,7 @@ export type CapturedSpeechEditorContext = Readonly<{
 export const SpeechInterpretationOperation = {
   ClassifyTranscript: "ClassifyTranscript",
   RewriteSelection: "RewriteSelection",
+  RewriteDocumentMarkdown: "RewriteDocumentMarkdown",
 } as const;
 
 export type SpeechInterpretationOperation =

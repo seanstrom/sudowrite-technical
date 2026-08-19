@@ -16,6 +16,7 @@ import {
   type SpeechCommandIntent,
   type SpeechEditCommand as SpeechEditCommandValue,
   type SpeechEditProposal,
+  type SpeechDocumentPreview,
   type SpeechEditorContextIdentity,
   type SpeechInterpretationFailure as SpeechInterpretationFailureValue,
   type SpeechInterpretationOutcome as SpeechInterpretationOutcomeValue,
@@ -38,6 +39,23 @@ export type SelectionRewritePort = Readonly<{
   ) => Effect.Effect<string, SpeechInterpretationFailureValue>;
 }>;
 
+export type DocumentRewriteRequest = Readonly<{
+  instruction: string;
+  documentContent: unknown;
+  maximumOutputLength: number;
+}>;
+
+export type DocumentRewriteResult = Readonly<{
+  replacementContent: unknown;
+  preview: SpeechDocumentPreview;
+}>;
+
+export type DocumentRewritePort = Readonly<{
+  rewrite: (
+    request: DocumentRewriteRequest,
+  ) => Effect.Effect<DocumentRewriteResult, SpeechInterpretationFailureValue>;
+}>;
+
 export type InterpretTranscriptInput = Readonly<{
   requestId: string;
   transcript: string;
@@ -46,7 +64,8 @@ export type InterpretTranscriptInput = Readonly<{
 
 export type InterpretTranscriptPorts = Readonly<{
   classifier: SpeechCommandClassifierPort;
-  rewriter: SelectionRewritePort;
+  selectionRewriter: SelectionRewritePort;
+  documentRewriter: DocumentRewritePort;
 }>;
 
 const MaximumRewriteInputLength = 8_000;
@@ -89,6 +108,8 @@ function commandSummary(command: SpeechEditCommandValue): string {
       return `${command.enabled ? "Apply" : "Remove"} ${command.mark}.`;
     case SpeechEditCommandType.ReplaceSelection:
       return "Replace the captured selection with generated prose.";
+    case SpeechEditCommandType.ReplaceDocument:
+      return "Replace the entire document with a reviewed Markdown rewrite.";
     default:
       command satisfies never;
       return "Review the proposed edit.";
@@ -98,7 +119,7 @@ function commandSummary(command: SpeechEditCommandValue): string {
 function deterministicCommand(
   intent: Exclude<
     SpeechCommandIntent,
-    Readonly<{ type: typeof SpeechCommandIntentType.RewriteSelection }>
+    Readonly<{ type: typeof SpeechCommandIntentType.Rewrite }>
   >,
   context: CapturedSpeechEditorContext,
 ): Effect.Effect<SpeechEditCommandValue, SpeechInterpretationFailureValue> {
@@ -175,7 +196,10 @@ function deterministicCommand(
 export function planSpeechCommand(
   intent: SpeechCommandIntent,
   context: CapturedSpeechEditorContext,
-  rewriter: SelectionRewritePort,
+  rewriters: Readonly<{
+    selection: SelectionRewritePort;
+    document: DocumentRewritePort;
+  }>,
 ): Effect.Effect<SpeechEditCommandValue, SpeechInterpretationFailureValue> {
   switch (intent.type) {
     case SpeechCommandIntentType.ReplaceLiteral:
@@ -183,13 +207,38 @@ export function planSpeechCommand(
     case SpeechCommandIntentType.SetSelectionMark:
       return deterministicCommand(intent, context);
 
-    case SpeechCommandIntentType.RewriteSelection: {
+    case SpeechCommandIntentType.Rewrite: {
+      if (intent.scope === SpeechTextScope.Document) {
+        if (context.documentText.length > MaximumRewriteInputLength) {
+          return Effect.fail(
+            SpeechInterpretationFailure.InvalidContext(
+              `Document text exceeds ${MaximumRewriteInputLength} characters.`,
+            ),
+          );
+        }
+
+        return rewriters.document
+          .rewrite({
+            instruction: intent.instruction,
+            documentContent: context.documentContent,
+            maximumOutputLength: MaximumRewriteOutputLength,
+          })
+          .pipe(
+            Effect.map((result) =>
+              SpeechEditCommand.ReplaceDocument(
+                result.replacementContent,
+                result.preview,
+              ),
+            ),
+          );
+      }
+
       const selectedText = context.selection?.text ?? "";
 
       if (selectedText.length === 0) {
         return Effect.fail(
           SpeechInterpretationFailure.InvalidContext(
-            "RewriteSelection requires a non-empty captured selection.",
+            "Selection rewrite requires a non-empty captured selection.",
           ),
         );
       }
@@ -202,7 +251,7 @@ export function planSpeechCommand(
         );
       }
 
-      return rewriter
+      return rewriters.selection
         .rewrite({
           instruction: intent.instruction,
           selectedText,
@@ -284,7 +333,10 @@ function interpretationFailureOutcome(
 function decisionToOutcome(
   input: InterpretTranscriptInput,
   decision: SpeechCommandDecision,
-  rewriter: SelectionRewritePort,
+  rewriters: Readonly<{
+    selection: SelectionRewritePort;
+    document: DocumentRewritePort;
+  }>,
 ): Effect.Effect<SpeechInterpretationOutcomeValue> {
   switch (decision.type) {
     case SpeechCommandDecisionType.Ambiguous:
@@ -305,7 +357,7 @@ function decisionToOutcome(
       );
 
     case SpeechCommandDecisionType.Classified:
-      return planSpeechCommand(decision.intent, input.context, rewriter).pipe(
+      return planSpeechCommand(decision.intent, input.context, rewriters).pipe(
         Effect.match({
           onFailure: (failure): SpeechInterpretationOutcomeValue =>
             interpretationFailureOutcome(input.transcript, failure),
@@ -337,7 +389,10 @@ export function interpretTranscript(
     ports.classifier,
   ).pipe(
     Effect.flatMap((decision) =>
-      decisionToOutcome(input, decision, ports.rewriter),
+      decisionToOutcome(input, decision, {
+        selection: ports.selectionRewriter,
+        document: ports.documentRewriter,
+      }),
     ),
     Effect.catchAll((failure) =>
       Effect.succeed(interpretationFailureOutcome(input.transcript, failure)),

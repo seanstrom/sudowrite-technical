@@ -82,46 +82,74 @@ export const EditorTarget = Schema.Struct({
   documentFingerprint: Schema.String,
 });
 export const CapturedEditorContext = Schema.Struct({
+  captureId: Schema.String,
   documentId: DocumentId,
+  documentRevision: Schema.Number,
   target: EditorTarget,
+  documentContent: TiptapDocumentContent,
   documentText: Schema.String,
 });
 export type CapturedEditorContext = typeof CapturedEditorContext.Type;
 
 export const ProposedEditorCommandType = {
   ReplaceSelection: "ReplaceSelection",
-  ReplaceAll: "ReplaceAll",
+  ReplaceText: "ReplaceText",
   InsertText: "InsertText",
   SetMark: "SetMark",
+  ReplaceDocument: "ReplaceDocument",
 } as const;
 
 export const ReplaceSelectionCommand = Schema.TaggedStruct(
   ProposedEditorCommandType.ReplaceSelection,
   { text: Schema.String },
 );
-export const ReplaceAllCommand = Schema.TaggedStruct(
-  ProposedEditorCommandType.ReplaceAll,
-  { search: Schema.String, replacement: Schema.String },
+export const ReplaceTextCommand = Schema.TaggedStruct(
+  ProposedEditorCommandType.ReplaceText,
+  {
+    scope: Schema.Literal("Selection", "Document"),
+    occurrence: Schema.Literal("First", "All"),
+    matchText: Schema.String,
+    replacementText: Schema.String,
+  },
 );
 export const InsertTextCommand = Schema.TaggedStruct(
   ProposedEditorCommandType.InsertText,
-  { text: Schema.String, at: Schema.Literal("Before", "After") },
+  {
+    text: Schema.String,
+    target: Schema.Literal("BeforeSelection", "AfterSelection", "DocumentEnd"),
+  },
 );
 export const SetMarkCommand = Schema.TaggedStruct(
   ProposedEditorCommandType.SetMark,
-  { mark: EditorMark, enabled: Schema.Boolean },
+  { mark: Schema.Literal("Bold", "Italic"), enabled: Schema.Boolean },
+);
+export const DocumentRewritePreview = Schema.Struct({
+  beforeExcerpt: Schema.String,
+  afterExcerpt: Schema.String,
+  beforeWordCount: Schema.Number,
+  afterWordCount: Schema.Number,
+  beforeBlockCount: Schema.Number,
+  afterBlockCount: Schema.Number,
+});
+export const ReplaceDocumentCommand = Schema.TaggedStruct(
+  ProposedEditorCommandType.ReplaceDocument,
+  { content: TiptapDocumentContent, preview: DocumentRewritePreview },
 );
 export const ProposedEditorCommand = Schema.Union(
   ReplaceSelectionCommand,
-  ReplaceAllCommand,
+  ReplaceTextCommand,
   InsertTextCommand,
   SetMarkCommand,
+  ReplaceDocumentCommand,
 );
 export type ProposedEditorCommand = typeof ProposedEditorCommand.Type;
 
 export const EditorProposalOutcomeType = {
   Proposed: "ProposedEditorCommand",
+  Ambiguous: "AmbiguousEditorCommand",
   Unsupported: "UnsupportedEditorCommand",
+  Cancelled: "CancelledEditorCommand",
+  Failed: "FailedEditorCommand",
 } as const;
 export const ProposedEditorCommandResult = Schema.TaggedStruct(
   EditorProposalOutcomeType.Proposed,
@@ -137,9 +165,24 @@ export const UnsupportedEditorCommandResult = Schema.TaggedStruct(
   EditorProposalOutcomeType.Unsupported,
   { transcript: Schema.String, reason: Schema.String },
 );
+export const AmbiguousEditorCommandResult = Schema.TaggedStruct(
+  EditorProposalOutcomeType.Ambiguous,
+  { transcript: Schema.String, reason: Schema.String, clarification: Schema.String },
+);
+export const CancelledEditorCommandResult = Schema.TaggedStruct(
+  EditorProposalOutcomeType.Cancelled,
+  { reason: Schema.String },
+);
+export const FailedEditorCommandResult = Schema.TaggedStruct(
+  EditorProposalOutcomeType.Failed,
+  { reason: Schema.String },
+);
 export const EditorProposalOutcome = Schema.Union(
   ProposedEditorCommandResult,
+  AmbiguousEditorCommandResult,
   UnsupportedEditorCommandResult,
+  CancelledEditorCommandResult,
+  FailedEditorCommandResult,
 );
 export type EditorProposalOutcome = typeof EditorProposalOutcome.Type;
 

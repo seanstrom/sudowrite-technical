@@ -70,7 +70,10 @@ export const SpeechCommandFixtures: ReadonlyArray<SpeechCommandFixture> = [
       documentIsEmpty: false,
     },
     expected: SpeechCommandDecision.Classified(
-      SpeechCommandIntent.RewriteSelection("make this more concise"),
+      SpeechCommandIntent.Rewrite(
+        SpeechTextScope.Selection,
+        "make this more concise",
+      ),
     ),
   },
   {

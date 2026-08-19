@@ -8,7 +8,10 @@ import {
   SpeechTextScope,
 } from "./domain.ts";
 import { makeSpeechCommandClassifierRequest } from "./prompt.ts";
-import { makeOpenRouterClassifierPort } from "./openrouter.ts";
+import {
+  makeOpenRouterClassifierPort,
+  makeOpenRouterMarkdownRewriteProviderPort,
+} from "./openrouter.ts";
 import { SpeechCommandClassifierEnvelopeKind } from "./provider-schema.ts";
 
 describe("OpenRouter classifier adapter", () => {
@@ -105,5 +108,31 @@ describe("OpenRouter classifier adapter", () => {
 
     expect(failure?.type).toBe(SpeechInterpretationFailureType.ProviderFailed);
     expect(JSON.stringify(failure)).not.toContain("Authorization");
+  });
+
+  it("maps a document Markdown rewrite through its dedicated strict schema", async () => {
+    const calls: Array<RequestInit> = [];
+    const provider = makeOpenRouterMarkdownRewriteProviderPort({
+      apiKey: "secret-for-test",
+      classifierModel: "classifier",
+      rewriteModel: "rewriter",
+      fetch: async (_input, init) => {
+        calls.push(init ?? {});
+        return new Response(JSON.stringify({
+          choices: [{ message: { content: JSON.stringify({ replacementMarkdown: "# Revised" }) } }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      },
+    });
+    await expect(Effect.runPromise(provider.rewrite({
+      instruction: "shorten",
+      sourceMarkdown: "# Original",
+      maximumOutputLength: 1_000,
+    }))).resolves.toBe("# Revised");
+    const body = JSON.parse(String(calls[0]?.body));
+    expect(body.response_format.json_schema).toMatchObject({
+      name: "speech_document_markdown_rewrite_v1",
+      strict: true,
+    });
+    expect(body.messages[0].content).toContain("untrusted data");
   });
 });

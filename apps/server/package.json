@@ -12,6 +12,7 @@
     "@app/contracts": "workspace:*",
     "@app/domain": "workspace:*",
     "@app/editor": "workspace:*",
+    "@app/speech-command": "workspace:*",
     "@app/storage-sqlite": "workspace:*",
     "@app/voice-capture": "workspace:*",
     "@effect/platform": "catalog:",

@@ -32,6 +32,7 @@ function context(
       documentRevision: "revision-1",
       documentFingerprint: "fingerprint-1",
     },
+    documentContent: { type: "doc", content: [{ type: "paragraph" }] },
     documentText: "A cat and another cat. A wordy selected sentence.",
     selection:
       selectedText === null
@@ -65,6 +66,54 @@ function envelope(
 }
 
 describe("speech command planner", () => {
+  it("routes a Document rewrite to the bounded document rewriter only", async () => {
+    const requests: Array<unknown> = [];
+    const result = await Effect.runPromise(
+      interpretTranscript(
+        {
+          requestId: "request-document",
+          transcript: "Make the whole document concise.",
+          context: context(),
+        },
+        {
+          classifier: {
+            classify: () => Effect.succeed(envelope({
+              intent: SpeechCommandIntentType.Rewrite,
+              scope: SpeechTextScope.Document,
+              rewriteInstruction: "make concise",
+            })),
+          },
+          selectionRewriter: { rewrite: () => Effect.die("selection rewriter must not run") },
+          documentRewriter: {
+            rewrite: (request) => {
+              requests.push(request);
+              return Effect.succeed({
+                replacementContent: { type: "doc", content: [{ type: "paragraph" }] },
+                preview: {
+                  beforeExcerpt: "Before",
+                  afterExcerpt: "After",
+                  beforeWordCount: 2,
+                  afterWordCount: 1,
+                  beforeBlockCount: 1,
+                  afterBlockCount: 1,
+                },
+              });
+            },
+          },
+        },
+      ),
+    );
+    expect(requests).toEqual([{
+      instruction: "make concise",
+      documentContent: context().documentContent,
+      maximumOutputLength: 8_000,
+    }]);
+    expect(result.type).toBe(SpeechInterpretationOutcomeType.Proposed);
+    if (result.type === SpeechInterpretationOutcomeType.Proposed) {
+      expect(result.proposal.command.type).toBe(SpeechEditCommandType.ReplaceDocument);
+    }
+  });
+
   it("plans deterministic replacements without calling the rewriter", async () => {
     let rewriteCount = 0;
     const result = await Effect.runPromise(
@@ -87,12 +136,13 @@ describe("speech command planner", () => {
                 }),
               ),
           },
-          rewriter: {
+          selectionRewriter: {
             rewrite: () => {
               rewriteCount += 1;
               return Effect.succeed("unused");
             },
           },
+          documentRewriter: { rewrite: () => Effect.die("unused") },
         },
       ),
     );
@@ -130,13 +180,14 @@ describe("speech command planner", () => {
             classify: () =>
               Effect.succeed(
                 envelope({
-                  intent: SpeechCommandIntentType.RewriteSelection,
+                  intent: SpeechCommandIntentType.Rewrite,
                   scope: SpeechTextScope.Selection,
                   rewriteInstruction: "make this more concise",
                 }),
               ),
           },
-          rewriter,
+          selectionRewriter: rewriter,
+          documentRewriter: { rewrite: () => Effect.die("unused") },
         },
       ),
     );
@@ -178,12 +229,13 @@ describe("speech command planner", () => {
                 }),
               ),
           },
-          rewriter: {
+          selectionRewriter: {
             rewrite: () => {
               rewriteCount += 1;
               return Effect.succeed("unused");
             },
           },
+          documentRewriter: { rewrite: () => Effect.die("unused") },
         },
       ),
     );
@@ -211,12 +263,13 @@ describe("speech command planner", () => {
                 }),
               ),
           },
-          rewriter: {
+          selectionRewriter: {
             rewrite: () => {
               rewriteCount += 1;
               return Effect.succeed("unused");
             },
           },
+          documentRewriter: { rewrite: () => Effect.die("unused") },
         },
       ),
     );
@@ -246,7 +299,8 @@ describe("speech command planner", () => {
                 }),
               ),
           },
-          rewriter: { rewrite: () => Effect.succeed("unused") },
+          selectionRewriter: { rewrite: () => Effect.succeed("unused") },
+          documentRewriter: { rewrite: () => Effect.die("unused") },
         },
       ),
     );
@@ -283,12 +337,13 @@ describe("speech command planner", () => {
                 ),
               ),
           },
-          rewriter: {
+          selectionRewriter: {
             rewrite: () => {
               rewriteCount += 1;
               return Effect.succeed("unused");
             },
           },
+          documentRewriter: { rewrite: () => Effect.die("unused") },
         },
       ),
     );
