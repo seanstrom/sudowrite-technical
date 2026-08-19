@@ -30,7 +30,7 @@ The current source includes the complete JSON-backed document spine, browser mic
 - Revalidates the captured revision and fingerprint, then applies an accepted proposal as one undoable local transaction.
 - Records a bounded thirty-second browser audio instruction and releases microphone resources after stop, cancel, failure, or disposal.
 - Validates and transcribes the serialized recording through Effect RPC with either a deterministic test port or a server-only OpenRouter adapter.
-- Places the returned transcript into editable review state without automatically proposing or applying an editor change.
+- Automatically classifies the returned transcript, shows it as read-only evidence beside the proposal, and never changes the document before explicit Apply.
 
 Deterministic literal replacement, literal insertion, and explicit mark commands remain locally planned and non-generative. They do not broaden the model boundary or turn the LLM into a router for arbitrary executable editor tools.
 
@@ -46,8 +46,7 @@ flowchart LR
   Storage --> Migrations["Drizzle Kit migrations"]
   Capture["Browser MediaRecorder"] --> RPC
   RPC --> Transcription["Server transcription port"]
-  Transcription --> Review["Editable transcript review"]
-  Review --> Classifier["Closed command classifier"]
+  Transcription --> Classifier["Closed command classifier"]
   Classifier --> Planner["Deterministic planner"]
   Planner --> Selection["Selection text rewrite"]
   Planner --> Markdown["Tiptap JSON to bounded Markdown rewrite"]
@@ -102,27 +101,68 @@ packages/
 tools/                 Workspace tooling packages
 ```
 
-## Prerequisites
+## Install and run
 
-The repository includes a devenv configuration and works best with:
+### Prerequisites
 
-- direnv;
-- devenv;
-- Node.js 24 or newer; and
-- pnpm 11.21.0.
+Use either the included devenv environment or install these tools yourself:
 
-If you do not use devenv, install a compatible Node and pnpm version yourself.
+- Node.js 24 or newer;
+- pnpm 11.21.0;
+- direnv and devenv when using the included reproducible shell.
 
-## Run locally
+### Install with devenv
 
-Clone the repository, enter its directory, and provision the shell:
+Clone the repository, enter its root, approve the environment, and install the locked dependencies:
 
 ```sh
 direnv allow
 pnpm install --frozen-lockfile
 ```
 
-Start the web and RPC servers together:
+`direnv allow` activates the included devenv shell, which supplies compatible Node.js and pnpm versions. Re-enter the directory or run `direnv reload` after changing the environment definition.
+
+### Install without devenv
+
+Install Node.js 24 or newer and pnpm 11.21.0 using your preferred system tooling, then run from the repository root:
+
+```sh
+pnpm install --frozen-lockfile
+```
+
+### Configure OpenRouter
+
+Live microphone transcription, command classification, and generative rewrites require a server-side `OPENROUTER_API_KEY`. Never place the key in browser code or commit it to Git.
+
+The preferred local setup is an ignored `.env.local` file:
+
+```dotenv
+OPENROUTER_API_KEY=replace-with-your-key
+WEB_PORT=5173
+SERVER_PORT=3001
+DATABASE_PATH=.local/data.sqlite
+```
+
+The root `pnpm dev` command loads `.env.local` automatically when the file exists. Existing shell variables take precedence.
+
+Alternatively, export the key into the current shell:
+
+```sh
+export OPENROUTER_API_KEY="replace-with-your-key"
+pnpm dev
+```
+
+For a one-command invocation, prefix the development command:
+
+```sh
+OPENROUTER_API_KEY="replace-with-your-key" pnpm dev
+```
+
+The optional provider model variables are `OPENROUTER_STT_MODEL`, `OPENROUTER_CLASSIFIER_MODEL`, and `OPENROUTER_REWRITE_MODEL`. Defaults are used when they are absent.
+
+### Start the application
+
+Start the React application and Effect RPC server together:
 
 ```sh
 pnpm dev
@@ -133,24 +173,7 @@ Then open:
 - Web application: http://127.0.0.1:5173
 - Effect RPC endpoint: http://127.0.0.1:3001/rpc
 
-The default SQLite database is created beneath the server package at `apps/server/data/speech-edit.sqlite`.
-
-No environment configuration is required for the default local ports and database. Available settings are documented in `.env.example`:
-
-```dotenv
-WEB_PORT=5173
-SERVER_PORT=3001
-DATABASE_PATH=.local/data.sqlite
-```
-
-Local environment files are ignored by Git. The application does not automatically load `.env.local`; source it into the shell when using it:
-
-```sh
-set -a
-. ./.env.local
-set +a
-pnpm dev
-```
+The server applies committed Drizzle migrations during startup. The default SQLite database is `apps/server/data/speech-edit.sqlite`; set `DATABASE_PATH` to choose another location.
 
 ## Verification
 
@@ -169,7 +192,7 @@ pnpm playwright:install
 pnpm test:e2e
 ```
 
-The Playwright configuration starts the RPC server before the web application and uses an isolated SQLite test database. The browser scenarios verify JSON persistence across reload, preservation of undo and redo after autosave, proposal review without premature mutation, explicit application, undo of an accepted proposal, and a fake-microphone recording through transcript review and resource reacquisition.
+The Playwright configuration starts the RPC server before the web application and uses an isolated SQLite test database. The browser scenarios verify JSON persistence across reload, preservation of undo and redo after autosave, and a fake-microphone recording through automatic proposal review, explicit Apply, Undo, and recorder resource reacquisition.
 
 When the Drizzle schema changes, generate and review a migration:
 
@@ -244,7 +267,7 @@ Implemented and verified before the current polish pass:
 - isolated speech-command classification and evaluation;
 - explicit browser microphone start, stop, cancel, duration, and disposal lifecycle;
 - bounded Effect RPC transcription with strict server validation;
-- editable transcript review that preserves the original editor capture.
+- automatic transcript classification that preserves the original editor capture and requires explicit Apply.
 
 Present in the current integration source, with final verification in progress:
 
